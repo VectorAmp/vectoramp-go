@@ -8,9 +8,13 @@ import (
 )
 
 const (
-	SourceTypeS3         = "s3"
-	SourceTypeWeb        = "web"
-	SourceTypeGDrive     = "gdrive"
+	// SourceTypeS3 identifies Amazon S3 ingestion sources.
+	SourceTypeS3 = "s3"
+	// SourceTypeWeb identifies web crawler ingestion sources.
+	SourceTypeWeb = "web"
+	// SourceTypeGDrive identifies Google Drive ingestion sources.
+	SourceTypeGDrive = "gdrive"
+	// SourceTypeFileUpload identifies presigned file-upload sources.
 	SourceTypeFileUpload = "file_upload"
 )
 
@@ -30,11 +34,16 @@ type GenericSource struct {
 	Metadata    Metadata
 }
 
+// ToCreateSourceRequest converts GenericSource into a create-source request.
 func (s GenericSource) ToCreateSourceRequest() CreateSourceRequest {
 	return CreateSourceRequest{SourceType: s.SourceType, Name: s.Name, Description: s.Description, Config: cloneMap(s.Config), Metadata: cloneMetadata(s.Metadata)}
 }
 
 // WebSource describes a web crawler ingestion source.
+//
+// Name defaults to web-<host> from the first StartURLs entry, or
+// go-sdk-web-source when no URL is available. Zero-value optional fields are
+// omitted from config; ConfigExtra is merged into config last.
 type WebSource struct {
 	Name             string
 	StartURLs        []string
@@ -50,12 +59,14 @@ type WebSource struct {
 	ConfigExtra      map[string]interface{}
 }
 
+// WebSelectors configures CSS selectors for WebSource extraction.
 type WebSelectors struct {
 	Content string   `json:"content,omitempty"`
 	Title   string   `json:"title,omitempty"`
 	Exclude []string `json:"exclude,omitempty"`
 }
 
+// ToCreateSourceRequest converts WebSource into a create-source request.
 func (s WebSource) ToCreateSourceRequest() CreateSourceRequest {
 	config := map[string]interface{}{
 		"type":       SourceTypeWeb,
@@ -83,6 +94,10 @@ func (s WebSource) ToCreateSourceRequest() CreateSourceRequest {
 }
 
 // S3Source describes an Amazon S3 ingestion source.
+//
+// Name defaults to s3-<bucket>, or go-sdk-s3-source when Bucket is empty.
+// SyncMode defaults to incremental. Zero-value optional fields are omitted from
+// config; ConfigExtra is merged into config last.
 type S3Source struct {
 	Name            string
 	Bucket          string
@@ -98,6 +113,7 @@ type S3Source struct {
 	ConfigExtra     map[string]interface{}
 }
 
+// ToCreateSourceRequest converts S3Source into a create-source request.
 func (s S3Source) ToCreateSourceRequest() CreateSourceRequest {
 	config := map[string]interface{}{
 		"type":      SourceTypeS3,
@@ -116,6 +132,10 @@ func (s S3Source) ToCreateSourceRequest() CreateSourceRequest {
 
 // GoogleDriveSource describes a Google Drive ingestion source. The public
 // source_type is "gdrive".
+//
+// Name defaults to gdrive-<drive_id>, then gdrive-<first_folder_id>, then
+// go-sdk-gdrive-source. SyncMode defaults to incremental. Zero-value optional
+// fields are omitted from config; ConfigExtra is merged into config last.
 type GoogleDriveSource struct {
 	Name                   string
 	AuthMode               string
@@ -140,6 +160,7 @@ type GoogleDriveSource struct {
 	ConfigExtra            map[string]interface{}
 }
 
+// ToCreateSourceRequest converts GoogleDriveSource into a create-source request.
 func (s GoogleDriveSource) ToCreateSourceRequest() CreateSourceRequest {
 	config := map[string]interface{}{
 		"type":      SourceTypeGDrive,
@@ -169,6 +190,10 @@ func (s GoogleDriveSource) ToCreateSourceRequest() CreateSourceRequest {
 
 // FileUploadSource models the source record used by the presigned file-upload
 // flow. Use IngestFiles for the full local file upload flow.
+//
+// Name defaults to go-sdk-file-upload. StorageProvider defaults to s3 and
+// SyncMode defaults to full. Zero-value optional fields are omitted from config;
+// ConfigExtra is merged into config last.
 type FileUploadSource struct {
 	Name                string
 	StorageProvider     string
@@ -182,6 +207,7 @@ type FileUploadSource struct {
 	ConfigExtra         map[string]interface{}
 }
 
+// ToCreateSourceRequest converts FileUploadSource into a create-source request.
 func (s FileUploadSource) ToCreateSourceRequest() CreateSourceRequest {
 	name := defaultString(s.Name, "go-sdk-file-upload")
 	config := map[string]interface{}{
@@ -197,22 +223,27 @@ func (s FileUploadSource) ToCreateSourceRequest() CreateSourceRequest {
 	return CreateSourceRequest{SourceType: SourceTypeFileUpload, Name: name, Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
 }
 
+// Create is an alias for CreateSource.
 func (s *IngestionService) Create(ctx context.Context, source interface{}) (*Source, error) {
 	return s.CreateSource(ctx, source)
 }
 
+// CreateWeb creates a web ingestion source and returns it.
 func (s *IngestionService) CreateWeb(ctx context.Context, source WebSource) (*Source, error) {
 	return s.CreateSource(ctx, source)
 }
 
+// CreateS3 creates an S3 ingestion source and returns it.
 func (s *IngestionService) CreateS3(ctx context.Context, source S3Source) (*Source, error) {
 	return s.CreateSource(ctx, source)
 }
 
+// CreateGoogleDrive creates a Google Drive ingestion source and returns it.
 func (s *IngestionService) CreateGoogleDrive(ctx context.Context, source GoogleDriveSource) (*Source, error) {
 	return s.CreateSource(ctx, source)
 }
 
+// CreateFileUpload creates a file_upload source and returns it.
 func (s *IngestionService) CreateFileUpload(ctx context.Context, source FileUploadSource) (*Source, error) {
 	return s.CreateSource(ctx, source)
 }

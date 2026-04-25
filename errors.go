@@ -13,6 +13,7 @@ type APIError struct {
 	Message    string
 }
 
+// Error returns a concise status/message string for the API error.
 func (e *APIError) Error() string {
 	if e == nil {
 		return "<nil>"

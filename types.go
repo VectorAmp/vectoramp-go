@@ -2,14 +2,21 @@ package vectoramp
 
 import "encoding/json"
 
+// Metadata is arbitrary user or API metadata attached to resources and results.
 type Metadata map[string]interface{}
 
+// Pagination summarizes a paginated list response.
 type Pagination struct {
 	Total  int `json:"total"`
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
 }
 
+// Dataset is a VectorAmp vector dataset returned by the API.
+//
+// Dataset resource methods require the value to be returned by a Client so it is
+// bound to the originating client. Public dataset creation is SABLE-only; newly
+// created datasets always use index_type="sable".
 type Dataset struct {
 	service *DatasetService `json:"-"`
 	client  *Client         `json:"-"`
@@ -28,6 +35,7 @@ type Dataset struct {
 	Raw       json.RawMessage        `json:"-"`
 }
 
+// UnmarshalJSON decodes a dataset and preserves the raw response body.
 func (d *Dataset) UnmarshalJSON(data []byte) error {
 	type alias Dataset
 	var out alias
@@ -56,11 +64,13 @@ func (d *Dataset) datasetService() *DatasetService {
 	panic("vectoramp: Dataset resource is not bound to a Client; get it from Client.Datasets.Create/Get/List before calling resource methods")
 }
 
+// EmbeddingConfig selects the embedding provider and model associated with a dataset.
 type EmbeddingConfig struct {
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
 }
 
+// DatasetList is a paginated collection of datasets.
 type DatasetList struct {
 	Datasets []Dataset `json:"datasets"`
 	Total    int       `json:"total"`
@@ -68,6 +78,7 @@ type DatasetList struct {
 	Offset   int       `json:"offset"`
 }
 
+// Pagination returns the list pagination metadata as a common struct.
 func (p DatasetList) Pagination() Pagination {
 	return Pagination{Total: p.Total, Limit: p.Limit, Offset: p.Offset}
 }
@@ -78,6 +89,11 @@ func (p *DatasetList) bind(s *DatasetService) {
 	}
 }
 
+// CreateDatasetRequest is the request body for creating a dataset.
+//
+// Name and Dim are required by the API. Metric, Tuning, Embedding, and Metadata
+// are optional. MarshalJSON always adds index_type="sable" because public
+// dataset creation is SABLE-only.
 type CreateDatasetRequest struct {
 	Name      string                 `json:"name"`
 	Dim       int                    `json:"dim"`
@@ -87,6 +103,7 @@ type CreateDatasetRequest struct {
 	Metadata  Metadata               `json:"metadata,omitempty"`
 }
 
+// MarshalJSON encodes CreateDatasetRequest with index_type="sable".
 func (r CreateDatasetRequest) MarshalJSON() ([]byte, error) {
 	type alias CreateDatasetRequest
 	return json.Marshal(struct {
@@ -95,45 +112,71 @@ func (r CreateDatasetRequest) MarshalJSON() ([]byte, error) {
 	}{alias: alias(r), IndexType: "sable"})
 }
 
+// Vector is one vector record to insert into a dataset.
 type Vector struct {
 	ID       string    `json:"id"`
 	Values   []float64 `json:"values"`
 	Metadata Metadata  `json:"metadata,omitempty"`
 }
 
+// InsertVectorsRequest is the request body for vector insertion.
 type InsertVectorsRequest struct {
 	Vectors []Vector `json:"vectors"`
 }
+
+// InsertVectorsResponse reports how many vectors were inserted.
 type InsertVectorsResponse struct {
 	Inserted int `json:"inserted"`
 }
 
+// TextDocument is an input document for AddTexts.
+//
+// Metadata is optional. AddTexts copies Text into metadata["text"] unless that
+// key is already present.
 type TextDocument struct {
 	ID       string
 	Text     string
 	Metadata Metadata
 }
+
+// AddTextsRequest contains documents and optional embedding settings for AddTexts.
 type AddTextsRequest struct {
 	Texts             []TextDocument
 	EmbeddingProvider string
 	EmbeddingModel    string
 }
+
+// AddTextsResponse reports embedding and insertion counts from AddTexts.
 type AddTextsResponse struct {
 	Inserted   int `json:"inserted"`
 	Embeddings int `json:"embeddings"`
 }
 
+// EmbedRequest creates embeddings for Text or Texts.
+//
+// EmbeddingProvider and EmbeddingModel are optional; omit them to use the API or
+// dataset defaults.
 type EmbedRequest struct {
 	Text              string   `json:"text,omitempty"`
 	Texts             []string `json:"texts,omitempty"`
 	EmbeddingProvider string   `json:"embedding_provider,omitempty"`
 	EmbeddingModel    string   `json:"embedding_model,omitempty"`
 }
+
+// EmbedResponse contains either batch embeddings or a single embedding.
 type EmbedResponse struct {
 	Embeddings [][]float64 `json:"embeddings"`
 	Embedding  []float64   `json:"embedding,omitempty"`
 }
 
+// SearchRequest is the request body for dataset search.
+//
+// Provide either Query for vector search or QueryText for text search. TopK
+// defaults to 10 when using Search convenience inputs and left at zero. Filters,
+// AdvancedFilters, embedding settings, hybrid fields, and SABLE tuning overrides
+// are optional. IncludeMetadata is a pointer so nil preserves the API default
+// (true), while false explicitly omits metadata from results. IncludeDocuments
+// controls doc_kind/doc_value fields.
 type SearchRequest struct {
 	Query               []float64         `json:"query,omitempty"`
 	QueryText           string            `json:"query_text,omitempty"`
@@ -152,6 +195,7 @@ type SearchRequest struct {
 	IncludeMetadata     *bool             `json:"include_metadata,omitempty"`
 }
 
+// AdvancedFilter describes one structured metadata filter.
 type AdvancedFilter struct {
 	Field  string        `json:"field"`
 	Op     string        `json:"op"`
@@ -159,6 +203,7 @@ type AdvancedFilter struct {
 	Values []interface{} `json:"values,omitempty"`
 }
 
+// SearchResult is one ranked dataset search result.
 type SearchResult struct {
 	ID        interface{} `json:"id"`
 	Score     float64     `json:"score"`
@@ -168,12 +213,14 @@ type SearchResult struct {
 	DocValue  *string     `json:"doc_value,omitempty"`
 }
 
+// SearchResponse is the result set and timing for a search query.
 type SearchResponse struct {
 	Results     []SearchResult `json:"results"`
 	DatasetID   string         `json:"dataset_id,omitempty"`
 	QueryTimeMS float64        `json:"query_time_ms,omitempty"`
 }
 
+// Source is an ingestion source returned by the API.
 type Source struct {
 	ID          string                 `json:"id"`
 	SourceID    string                 `json:"source_id,omitempty"`
@@ -187,6 +234,8 @@ type Source struct {
 	CreatedAt   string                 `json:"created_at,omitempty"`
 	UpdatedAt   string                 `json:"updated_at,omitempty"`
 }
+
+// SourceList is a paginated collection of ingestion sources.
 type SourceList struct {
 	Sources []Source `json:"sources"`
 	Total   int      `json:"total"`
@@ -194,10 +243,15 @@ type SourceList struct {
 	Offset  int      `json:"offset"`
 }
 
+// Pagination returns the list pagination metadata as a common struct.
 func (p SourceList) Pagination() Pagination {
 	return Pagination{Total: p.Total, Limit: p.Limit, Offset: p.Offset}
 }
 
+// CreateSourceRequest is the request body for creating an ingestion source.
+//
+// SourceType, Name, and Config are required by the API. Description and Metadata
+// are optional. Prefer typed builders for SDK-managed defaults.
 type CreateSourceRequest struct {
 	SourceType  string                 `json:"source_type"`
 	Name        string                 `json:"name"`
@@ -206,6 +260,7 @@ type CreateSourceRequest struct {
 	Metadata    Metadata               `json:"metadata,omitempty"`
 }
 
+// Job is an ingestion job returned by the API.
 type Job struct {
 	JobID                 string      `json:"job_id"`
 	Status                string      `json:"status"`
@@ -220,6 +275,8 @@ type Job struct {
 	ProgressPercentage    float64     `json:"progress_percentage,omitempty"`
 	CurrentStep           *string     `json:"current_step,omitempty"`
 }
+
+// JobList is a paginated collection of ingestion jobs.
 type JobList struct {
 	Jobs   []Job `json:"jobs"`
 	Total  int   `json:"total"`
@@ -227,38 +284,57 @@ type JobList struct {
 	Offset int   `json:"offset"`
 }
 
+// Pagination returns the list pagination metadata as a common struct.
 func (p JobList) Pagination() Pagination {
 	return Pagination{Total: p.Total, Limit: p.Limit, Offset: p.Offset}
 }
 
+// StartIngestionRequest starts ingestion from a source into a dataset.
+//
+// SourceID and DatasetID are required. PipelineID is optional; omit it to use
+// the API default pipeline.
 type StartIngestionRequest struct {
 	SourceID   string `json:"source_id"`
 	DatasetID  string `json:"dataset_id"`
 	PipelineID string `json:"pipeline_id,omitempty"`
 }
 
+// UploadFile describes a local file before requesting a presigned upload target.
 type UploadFile struct {
 	Name        string `json:"name"`
 	SizeBytes   int64  `json:"size_bytes"`
 	ContentType string `json:"content_type,omitempty"`
 }
+
+// InitUploadRequest requests presigned upload targets for files.
 type InitUploadRequest struct {
 	Files []UploadFile `json:"files"`
 }
+
+// UploadTarget is one presigned upload destination returned by InitUpload.
 type UploadTarget struct {
 	FileID    string `json:"file_id"`
 	FileName  string `json:"file_name"`
 	UploadURL string `json:"upload_url"`
 }
+
+// InitUploadResponse contains the upload job ID and presigned upload targets.
 type InitUploadResponse struct {
 	JobID   string         `json:"job_id"`
 	Uploads []UploadTarget `json:"uploads"`
 }
+
+// CompleteUploadRequest completes a file-upload job after all PUTs finish.
 type CompleteUploadRequest struct {
 	JobID   string   `json:"job_id"`
 	FileIDs []string `json:"file_ids"`
 }
 
+// AskRequest is the request body for intelligence queries.
+//
+// Query is required. DatasetID is optional and may be a dataset ID or "all".
+// TopK, ConversationHistory, and IncludeSources are optional. Stream is managed
+// by Ask and Stream helpers.
 type AskRequest struct {
 	Query               string                `json:"query"`
 	DatasetID           interface{}           `json:"dataset_id,omitempty"`
@@ -267,10 +343,14 @@ type AskRequest struct {
 	Stream              bool                  `json:"stream"`
 	IncludeSources      *bool                 `json:"include_sources,omitempty"`
 }
+
+// ConversationMessage is one prior chat turn for an intelligence query.
 type ConversationMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
+
+// AskResponse is the non-streaming intelligence response.
 type AskResponse struct {
 	Answer   string           `json:"answer"`
 	Sources  []SourceCitation `json:"sources,omitempty"`
@@ -278,6 +358,8 @@ type AskResponse struct {
 	Message  *string          `json:"message,omitempty"`
 	Metadata Metadata         `json:"metadata,omitempty"`
 }
+
+// SourceCitation describes a source cited by an intelligence answer.
 type SourceCitation struct {
 	Name         string     `json:"name,omitempty"`
 	Path         string     `json:"path,omitempty"`
@@ -292,6 +374,8 @@ type SourceCitation struct {
 	FileID       string     `json:"file_id,omitempty"`
 	ThumbnailURL *string    `json:"thumbnail_url,omitempty"`
 }
+
+// RAGChunk is a retrieved chunk used or returned by an intelligence query.
 type RAGChunk struct {
 	ID        string      `json:"id,omitempty"`
 	ChunkID   string      `json:"chunk_id,omitempty"`
@@ -302,6 +386,8 @@ type RAGChunk struct {
 	Page      interface{} `json:"page,omitempty"`
 	Metadata  Metadata    `json:"metadata,omitempty"`
 }
+
+// StreamEvent is one decoded server-sent event from an intelligence stream.
 type StreamEvent struct {
 	Event     string
 	ChunkType string   `json:"chunk_type"`
