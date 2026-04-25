@@ -5,20 +5,29 @@ import (
 	"fmt"
 )
 
+// defaultSearchTopK is applied when a search request omits TopK.
 const defaultSearchTopK = 10
 
+// SearchOption customizes a SearchRequest built from convenience inputs.
 type SearchOption func(*SearchRequest)
 
+// WithSearchTopK sets the maximum number of search results. The default is 10.
 func WithSearchTopK(k int) SearchOption { return func(r *SearchRequest) { r.TopK = k } }
+
+// WithSearchMetadata controls whether result metadata is returned. The API default is true.
 func WithSearchMetadata(include bool) SearchOption {
 	return func(r *SearchRequest) { r.IncludeMetadata = &include }
 }
+
+// WithSearchDocuments controls whether document payload fields are returned.
 func WithSearchDocuments(include bool) SearchOption {
 	return func(r *SearchRequest) { r.IncludeDocuments = include }
 }
 
+// AddTextsOption customizes an AddTextsRequest built from convenience inputs.
 type AddTextsOption func(*AddTextsRequest)
 
+// WithEmbedding selects the embedding provider and model used by AddTexts.
 func WithEmbedding(provider, model string) AddTextsOption {
 	return func(r *AddTextsRequest) {
 		r.EmbeddingProvider = provider
@@ -26,8 +35,13 @@ func WithEmbedding(provider, model string) AddTextsOption {
 	}
 }
 
+// DatasetService manages datasets and dataset-scoped operations.
 type DatasetService struct{ client *Client }
 
+// List returns datasets using optional limit and offset pagination.
+//
+// Pass zero for limit or offset to omit that query parameter. The response
+// includes datasets plus total, limit, and offset pagination metadata.
 func (s *DatasetService) List(ctx context.Context, limit, offset int) (*DatasetList, error) {
 	var out DatasetList
 	err := s.client.do(ctx, "GET", "/datasets", paginationQuery(limit, offset), nil, &out)
@@ -36,6 +50,8 @@ func (s *DatasetService) List(ctx context.Context, limit, offset int) (*DatasetL
 	}
 	return &out, err
 }
+
+// Get returns one dataset by ID.
 func (s *DatasetService) Get(ctx context.Context, datasetID string) (*Dataset, error) {
 	var out Dataset
 	err := s.client.do(ctx, "GET", fmt.Sprintf("/datasets/%s", datasetID), nil, nil, &out)
@@ -44,6 +60,12 @@ func (s *DatasetService) Get(ctx context.Context, datasetID string) (*Dataset, e
 	}
 	return &out, err
 }
+
+// Create creates a SABLE dataset and returns the created resource.
+//
+// req.Name and req.Dim identify the dataset and vector dimension. Metric,
+// tuning, embedding, and metadata are optional. The SDK always sends
+// index_type="sable"; public dataset creation is SABLE-only.
 func (s *DatasetService) Create(ctx context.Context, req CreateDatasetRequest) (*Dataset, error) {
 	var out Dataset
 	err := s.client.do(ctx, "POST", "/datasets", nil, req, &out)
@@ -52,9 +74,17 @@ func (s *DatasetService) Create(ctx context.Context, req CreateDatasetRequest) (
 	}
 	return &out, err
 }
+
+// Delete removes a dataset by ID.
 func (s *DatasetService) Delete(ctx context.Context, datasetID string) error {
 	return s.client.do(ctx, "DELETE", fmt.Sprintf("/datasets/%s", datasetID), nil, nil, nil)
 }
+
+// Search queries a dataset by text, vector, or full SearchRequest.
+//
+// input may be a string query_text, []float64 query vector, SearchRequest, or
+// *SearchRequest. Options override the normalized request. TopK defaults to 10
+// when omitted. The response contains ranked results and query timing.
 func (s *DatasetService) Search(ctx context.Context, datasetID string, input interface{}, opts ...SearchOption) (*SearchResponse, error) {
 	req, err := normalizeSearchRequest(input, opts...)
 	if err != nil {
@@ -64,16 +94,26 @@ func (s *DatasetService) Search(ctx context.Context, datasetID string, input int
 	err = s.client.do(ctx, "POST", fmt.Sprintf("/datasets/%s/search", datasetID), nil, req, &out)
 	return &out, err
 }
+
+// Insert writes vectors into a dataset and returns the inserted count.
 func (s *DatasetService) Insert(ctx context.Context, datasetID string, vectors []Vector) (*InsertVectorsResponse, error) {
 	var out InsertVectorsResponse
 	err := s.client.do(ctx, "POST", fmt.Sprintf("/datasets/%s/insert", datasetID), nil, InsertVectorsRequest{Vectors: vectors}, &out)
 	return &out, err
 }
+
+// Embed creates embeddings for one text or a batch using the dataset context.
 func (s *DatasetService) Embed(ctx context.Context, datasetID string, req EmbedRequest) (*EmbedResponse, error) {
 	var out EmbedResponse
 	err := s.client.do(ctx, "POST", fmt.Sprintf("/datasets/%s/embed", datasetID), nil, req, &out)
 	return &out, err
 }
+
+// AddTexts embeds text documents, inserts them as vectors, and returns counts.
+//
+// input may be a string, []string, []TextDocument, AddTextsRequest, or
+// *AddTextsRequest. String inputs receive generated IDs text-1, text-2, and so
+// on. Text is copied into metadata["text"] when that key is not already set.
 func (s *DatasetService) AddTexts(ctx context.Context, datasetID string, input interface{}, opts ...AddTextsOption) (*AddTextsResponse, error) {
 	req, err := normalizeAddTextsRequest(input, opts...)
 	if err != nil {
@@ -113,10 +153,20 @@ func (s *DatasetService) AddTexts(ctx context.Context, datasetID string, input i
 	return &AddTextsResponse{Inserted: inserted.Inserted, Embeddings: len(embeddings)}, nil
 }
 
+// IngestFiles uploads local files into a dataset and returns the ingestion job.
+//
+// It creates a file_upload source automatically, initializes presigned uploads,
+// PUTs each file, and completes the upload job. If opts.SourceName is empty, a
+// go-sdk-file-upload-<dataset>-<timestamp> name is generated.
 func (s *DatasetService) IngestFiles(ctx context.Context, datasetID string, paths []string, opts *IngestFilesOptions) (*Job, error) {
 	return s.client.Ingestion.IngestFiles(ctx, datasetID, paths, opts)
 }
 
+// IngestSource starts ingestion from an existing or newly created source.
+//
+// source may be a source ID string, Source, *Source, CreateSourceRequest, or a
+// typed SourceBuilder. Non-existing source definitions are created first.
+// pipelineID is optional; omit it to let the API select the default pipeline.
 func (s *DatasetService) IngestSource(ctx context.Context, datasetID string, source interface{}, pipelineID ...string) (*Job, error) {
 	sourceID, err := s.client.Ingestion.resolveSourceID(ctx, source)
 	if err != nil {
@@ -129,6 +179,7 @@ func (s *DatasetService) IngestSource(ctx context.Context, datasetID string, sou
 	return s.client.Ingestion.StartJob(ctx, StartIngestionRequest{SourceID: sourceID, DatasetID: datasetID, PipelineID: pipeline})
 }
 
+// Ask runs an intelligence query scoped to datasetID.
 func (s *DatasetService) Ask(ctx context.Context, datasetID string, input interface{}, opts ...AskOption) (*AskResponse, error) {
 	req, err := normalizeAskRequest(input, opts...)
 	if err != nil {
@@ -138,30 +189,37 @@ func (s *DatasetService) Ask(ctx context.Context, datasetID string, input interf
 	return s.client.Intelligence.Ask(ctx, req)
 }
 
+// Search queries this dataset. See DatasetService.Search.
 func (d *Dataset) Search(ctx context.Context, input interface{}, opts ...SearchOption) (*SearchResponse, error) {
 	return d.datasetService().Search(ctx, d.ID, input, opts...)
 }
 
+// Insert writes vectors into this dataset. See DatasetService.Insert.
 func (d *Dataset) Insert(ctx context.Context, vectors []Vector) (*InsertVectorsResponse, error) {
 	return d.datasetService().Insert(ctx, d.ID, vectors)
 }
 
+// AddTexts embeds and inserts texts into this dataset. See DatasetService.AddTexts.
 func (d *Dataset) AddTexts(ctx context.Context, input interface{}, opts ...AddTextsOption) (*AddTextsResponse, error) {
 	return d.datasetService().AddTexts(ctx, d.ID, input, opts...)
 }
 
+// Delete removes this dataset.
 func (d *Dataset) Delete(ctx context.Context) error {
 	return d.datasetService().Delete(ctx, d.ID)
 }
 
+// Ask runs an intelligence query scoped to this dataset.
 func (d *Dataset) Ask(ctx context.Context, input interface{}, opts ...AskOption) (*AskResponse, error) {
 	return d.datasetService().Ask(ctx, d.ID, input, opts...)
 }
 
+// IngestFiles uploads local files into this dataset. See DatasetService.IngestFiles.
 func (d *Dataset) IngestFiles(ctx context.Context, paths []string, opts *IngestFilesOptions) (*Job, error) {
 	return d.datasetService().IngestFiles(ctx, d.ID, paths, opts)
 }
 
+// IngestSource ingests an existing or newly created source into this dataset.
 func (d *Dataset) IngestSource(ctx context.Context, source interface{}, pipelineID ...string) (*Job, error) {
 	pipeline := ""
 	if len(pipelineID) > 0 {
