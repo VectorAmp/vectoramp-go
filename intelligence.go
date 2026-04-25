@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 )
@@ -20,10 +21,14 @@ func WithHistory(h []ConversationMessage) AskOption {
 	return func(r *AskRequest) { r.ConversationHistory = h }
 }
 
-func (s *IntelligenceService) Ask(ctx context.Context, req AskRequest) (*AskResponse, error) {
+func (s *IntelligenceService) Ask(ctx context.Context, input interface{}, opts ...AskOption) (*AskResponse, error) {
+	req, err := normalizeAskRequest(input, opts...)
+	if err != nil {
+		return nil, err
+	}
 	req.Stream = false
 	var out AskResponse
-	err := s.client.do(ctx, "POST", "/intelligence/query", nil, req, &out)
+	err = s.client.do(ctx, "POST", "/intelligence/query", nil, req, &out)
 	return &out, err
 }
 func (s *IntelligenceService) Stream(ctx context.Context, req AskRequest) (*AskStream, error) {
@@ -83,4 +88,25 @@ func decodeStreamEvent(event string, raw []byte) (*StreamEvent, bool) {
 	se := &StreamEvent{Event: event, Raw: raw}
 	_ = json.Unmarshal(raw, se)
 	return se, true
+}
+
+func normalizeAskRequest(input interface{}, opts ...AskOption) (AskRequest, error) {
+	var req AskRequest
+	switch v := input.(type) {
+	case AskRequest:
+		req = v
+	case *AskRequest:
+		if v == nil {
+			return AskRequest{}, fmt.Errorf("vectoramp: ask request is nil")
+		}
+		req = *v
+	case string:
+		req.Query = v
+	default:
+		return AskRequest{}, fmt.Errorf("vectoramp: unsupported ask input %T", input)
+	}
+	for _, opt := range opts {
+		opt(&req)
+	}
+	return req, nil
 }

@@ -3,6 +3,8 @@ package vectoramp
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 )
 
 const (
@@ -77,7 +79,7 @@ func (s WebSource) ToCreateSourceRequest() CreateSourceRequest {
 		config["headers"] = headers
 	}
 	mergeExtra(config, s.ConfigExtra)
-	return CreateSourceRequest{SourceType: SourceTypeWeb, Name: s.Name, Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
+	return CreateSourceRequest{SourceType: SourceTypeWeb, Name: defaultString(s.Name, webSourceDefaultName(s.StartURLs)), Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
 }
 
 // S3Source describes an Amazon S3 ingestion source.
@@ -109,7 +111,7 @@ func (s S3Source) ToCreateSourceRequest() CreateSourceRequest {
 	setStringSlice(config, "file_patterns", s.FilePatterns)
 	setNonZero(config, "max_file_size_mb", s.MaxFileSizeMB)
 	mergeExtra(config, s.ConfigExtra)
-	return CreateSourceRequest{SourceType: SourceTypeS3, Name: s.Name, Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
+	return CreateSourceRequest{SourceType: SourceTypeS3, Name: defaultString(s.Name, s3SourceDefaultName(s.Bucket)), Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
 }
 
 // GoogleDriveSource describes a Google Drive ingestion source. The public
@@ -162,7 +164,7 @@ func (s GoogleDriveSource) ToCreateSourceRequest() CreateSourceRequest {
 	setNonZero(config, "sampling_limit", s.SamplingLimit)
 	setNonZero(config, "max_concurrent_downloads", s.MaxConcurrentDownloads)
 	mergeExtra(config, s.ConfigExtra)
-	return CreateSourceRequest{SourceType: SourceTypeGDrive, Name: s.Name, Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
+	return CreateSourceRequest{SourceType: SourceTypeGDrive, Name: defaultString(s.Name, gdriveSourceDefaultName(s)), Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
 }
 
 // FileUploadSource models the source record used by the presigned file-upload
@@ -318,6 +320,57 @@ func cloneMetadata(in Metadata) Metadata {
 	out := make(Metadata, len(in))
 	for k, v := range in {
 		out[k] = v
+	}
+	return out
+}
+
+func webSourceDefaultName(startURLs []string) string {
+	if len(startURLs) == 0 || startURLs[0] == "" {
+		return "go-sdk-web-source"
+	}
+	parsed, err := url.Parse(startURLs[0])
+	if err == nil && parsed.Hostname() != "" {
+		return "web-" + sanitizeName(parsed.Hostname())
+	}
+	return "web-" + sanitizeName(startURLs[0])
+}
+
+func s3SourceDefaultName(bucket string) string {
+	if bucket == "" {
+		return "go-sdk-s3-source"
+	}
+	return "s3-" + sanitizeName(bucket)
+}
+
+func gdriveSourceDefaultName(source GoogleDriveSource) string {
+	if source.DriveID != "" {
+		return "gdrive-" + sanitizeName(source.DriveID)
+	}
+	if len(source.FolderIDs) > 0 && source.FolderIDs[0] != "" {
+		return "gdrive-" + sanitizeName(source.FolderIDs[0])
+	}
+	return "go-sdk-gdrive-source"
+}
+
+func sanitizeName(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		keep := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if keep {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "source"
 	}
 	return out
 }

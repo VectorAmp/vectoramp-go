@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type IngestionService struct{ client *Client }
@@ -73,13 +74,17 @@ func (s *IngestionService) IngestFiles(ctx context.Context, datasetID string, pa
 	}
 	name := opts.SourceName
 	if name == "" {
-		name = "go-sdk-file-upload"
+		name = defaultUploadSourceName(datasetID, time.Now().UTC())
 	}
 	md := Metadata{"dataset_id": datasetID}
 	for k, v := range opts.Metadata {
 		md[k] = v
 	}
 	src, err := s.CreateFileUpload(ctx, FileUploadSource{Name: name, Description: opts.Description, Metadata: md})
+	if err != nil {
+		return nil, err
+	}
+	sourceID, err := sourceIdentifier(*src)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +100,7 @@ func (s *IngestionService) IngestFiles(ctx context.Context, datasetID string, pa
 		}
 		files[i] = UploadFile{Name: filepath.Base(p), SizeBytes: st.Size(), ContentType: ct}
 	}
-	init, err := s.InitUpload(ctx, src.ID, InitUploadRequest{Files: files})
+	init, err := s.InitUpload(ctx, sourceID, InitUploadRequest{Files: files})
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +114,7 @@ func (s *IngestionService) IngestFiles(ctx context.Context, datasetID string, pa
 		}
 		fileIDs = append(fileIDs, u.FileID)
 	}
-	return s.CompleteUpload(ctx, src.ID, CompleteUploadRequest{JobID: init.JobID, FileIDs: fileIDs})
+	return s.CompleteUpload(ctx, sourceID, CompleteUploadRequest{JobID: init.JobID, FileIDs: fileIDs})
 }
 
 func putFile(ctx context.Context, uploadURL, path, contentType string) error {
@@ -134,4 +139,11 @@ func putFile(ctx context.Context, uploadURL, path, contentType string) error {
 		return &APIError{StatusCode: resp.StatusCode, Header: resp.Header, Message: "file upload failed"}
 	}
 	return nil
+}
+
+func defaultUploadSourceName(datasetID string, now time.Time) string {
+	if datasetID == "" {
+		return "go-sdk-file-upload-" + now.Format("20060102-150405")
+	}
+	return "go-sdk-file-upload-" + sanitizeName(datasetID) + "-" + now.Format("20060102-150405")
 }
