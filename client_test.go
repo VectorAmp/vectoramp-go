@@ -188,7 +188,11 @@ func TestIngestionSourcesJobsAndFilesystemUpload(t *testing.T) {
 			if body["source_type"] != "file_upload" {
 				t.Fatalf("bad source body: %#v", body)
 			}
-			w.Write([]byte(`{"id":"src1","name":"upload","source_type":"file_upload"}`))
+			name, _ := body["name"].(string)
+			if !strings.HasPrefix(name, "go-sdk-file-upload-ds1-") {
+				t.Fatalf("file upload source name should be generated from dataset id, got %#v body=%#v", name, body)
+			}
+			w.Write([]byte(`{"source_id":"src1","name":"upload","source_type":"file_upload"}`))
 		case r.Method == "POST" && r.URL.Path == "/v1/sources/src1/upload/init":
 			w.Write([]byte(`{"job_id":"job1","uploads":[{"file_id":"file1","file_name":"doc.txt","upload_url":"` + uploadServer.URL + `"}]}`))
 		case r.Method == "POST" && r.URL.Path == "/v1/sources/src1/upload/complete":
@@ -224,6 +228,63 @@ func TestIngestionSourcesJobsAndFilesystemUpload(t *testing.T) {
 	}
 	if job, err := c.Ingestion.IngestFiles(context.Background(), "ds1", []string{tmp}, nil); err != nil || job.JobID != "job1" || !uploadHit {
 		t.Fatalf("ingest files: %#v upload=%v err=%v", job, uploadHit, err)
+	}
+}
+
+func TestMinimalConvenienceInputs(t *testing.T) {
+	seen := map[string]bool{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/datasets/ds1/search":
+			seen["search"] = true
+			body := decodeBody(t, r)
+			if body["query_text"] != "hello" || body["top_k"].(float64) != 3 || body["include_metadata"] != false {
+				t.Fatalf("bad convenience search body: %#v", body)
+			}
+			w.Write([]byte(`{"results":[]}`))
+		case r.Method == "POST" && r.URL.Path == "/datasets/ds1/embed":
+			seen["embed"] = true
+			body := decodeBody(t, r)
+			if !reflect.DeepEqual(body["texts"], []interface{}{"one", "two"}) || body["embedding_provider"] != "openai" || body["embedding_model"] != "text-embedding-3-small" {
+				t.Fatalf("bad convenience embed body: %#v", body)
+			}
+			w.Write([]byte(`{"embeddings":[[0.1],[0.2]]}`))
+		case r.Method == "POST" && r.URL.Path == "/datasets/ds1/insert":
+			seen["insert"] = true
+			body := decodeBody(t, r)
+			vectors := body["vectors"].([]interface{})
+			first := vectors[0].(map[string]interface{})
+			if first["id"] != "text-1" || first["metadata"].(map[string]interface{})["text"] != "one" {
+				t.Fatalf("bad convenience insert body: %#v", body)
+			}
+			w.Write([]byte(`{"inserted":2}`))
+		case r.Method == "POST" && r.URL.Path == "/intelligence/query":
+			seen["ask"] = true
+			body := decodeBody(t, r)
+			if body["dataset_id"] != "ds1" || body["query"] != "why" || body["top_k"].(float64) != 4 {
+				t.Fatalf("bad convenience ask body: %#v", body)
+			}
+			w.Write([]byte(`{"answer":"because"}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+
+	ds := &Dataset{ID: "ds1", client: c}
+	if _, err := ds.Search(context.Background(), "hello", WithSearchTopK(3), WithSearchMetadata(false)); err != nil {
+		t.Fatalf("convenience search: %v", err)
+	}
+	if _, err := ds.AddTexts(context.Background(), []string{"one", "two"}, WithEmbedding("openai", "text-embedding-3-small")); err != nil {
+		t.Fatalf("convenience add texts: %v", err)
+	}
+	if answer, err := ds.Ask(context.Background(), "why", WithTopK(4)); err != nil || answer.Answer != "because" {
+		t.Fatalf("convenience ask: %#v %v", answer, err)
+	}
+	for _, k := range []string{"search", "embed", "insert", "ask"} {
+		if !seen[k] {
+			t.Fatalf("did not see %s", k)
+		}
 	}
 }
 
@@ -316,7 +377,6 @@ func TestTypedSourceBuildersAndHelpers(t *testing.T) {
 
 	robots := false
 	if _, err := c.Sources.CreateWeb(context.Background(), WebSource{
-		Name:             "site",
 		StartURLs:        []string{"https://example.com/docs"},
 		MaxDepth:         2,
 		AllowedDomains:   []string{"example.com"},
@@ -326,7 +386,6 @@ func TestTypedSourceBuildersAndHelpers(t *testing.T) {
 		t.Fatalf("create web: %v", err)
 	}
 	if _, err := c.Sources.CreateS3(context.Background(), S3Source{
-		Name:            "bucket",
 		Bucket:          "docs",
 		Region:          "us-west-2",
 		AccessKeyID:     "AKIA",
@@ -336,7 +395,6 @@ func TestTypedSourceBuildersAndHelpers(t *testing.T) {
 		t.Fatalf("create s3: %v", err)
 	}
 	if _, err := c.Sources.CreateGoogleDrive(context.Background(), GoogleDriveSource{
-		Name:               "drive",
 		AuthMode:           "service_account",
 		ServiceAccountJSON: `{"client_email":"svc@example.com"}`,
 		FolderIDs:          []string{"folder1"},
@@ -362,6 +420,9 @@ func TestTypedSourceBuildersAndHelpers(t *testing.T) {
 		if createdBodies[i]["source_type"] != want {
 			t.Fatalf("source %d type = %v, want %s body=%#v", i, createdBodies[i]["source_type"], want, createdBodies[i])
 		}
+	}
+	if createdBodies[0]["name"] != "web-example-com" || createdBodies[1]["name"] != "s3-docs" || createdBodies[2]["name"] != "gdrive-folder1" {
+		t.Fatalf("bad default names: %#v", createdBodies)
 	}
 	webConfig := createdBodies[0]["config"].(map[string]interface{})
 	if webConfig["type"] != "web" || webConfig["max_pages"].(float64) != 25 || webConfig["respect_robots_txt"] != false {

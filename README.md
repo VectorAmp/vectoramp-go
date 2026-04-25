@@ -46,16 +46,14 @@ func main() {
         log.Fatal(err)
     }
 
-    _, err = ds.AddTexts(ctx, vectoramp.AddTextsRequest{
-        Texts: []vectoramp.TextDocument{
-            {ID: "intro", Text: "VectorAmp is a high-performance vector database.", Metadata: vectoramp.Metadata{"section": "intro"}},
-        },
+    _, err = ds.AddTexts(ctx, []string{
+        "VectorAmp is a high-performance vector database.",
     })
     if err != nil {
         log.Fatal(err)
     }
 
-    answer, err := ds.Ask(ctx, vectoramp.AskRequest{Query: "What is VectorAmp?", TopK: 5})
+    answer, err := ds.Ask(ctx, "What is VectorAmp?", vectoramp.WithTopK(5))
     if err != nil {
         log.Fatal(err)
     }
@@ -113,9 +111,9 @@ err = client.Datasets.Delete(ctx, created.ID)
 
 ```go
 dataset, err := client.Datasets.Get(ctx, "dataset-id")
-resp, err := dataset.Search(ctx, vectoramp.SearchRequest{QueryText: "hello", TopK: 5})
+resp, err := dataset.Search(ctx, "hello", vectoramp.WithSearchTopK(5))
 
-// Equivalent service-style call remains supported.
+// Explicit request structs and service-style calls remain supported.
 resp, err = client.Datasets.Search(ctx, dataset.ID, vectoramp.SearchRequest{QueryText: "hello", TopK: 5})
 ```
 
@@ -135,10 +133,12 @@ _, err = client.Datasets.Insert(ctx, "dataset-id", []vectoramp.Vector{
 
 ### Add texts
 
-`AddTexts` embeds text through the dataset embedding model and inserts the resulting vectors.
+`AddTexts` embeds text through the dataset embedding model and inserts the resulting vectors. For quick inserts, pass a string or `[]string`; the SDK generates stable IDs (`text-1`, `text-2`, ...). Use `AddTextsRequest` when you need custom IDs or metadata.
 
 ```go
 dataset, err := client.Datasets.Get(ctx, "dataset-id")
+_, err = dataset.AddTexts(ctx, []string{"Hello world", "Machine learning notes"})
+
 _, err = dataset.AddTexts(ctx, vectoramp.AddTextsRequest{
     Texts: []vectoramp.TextDocument{
         {ID: "doc-1", Text: "Hello world", Metadata: vectoramp.Metadata{"source": "manual"}},
@@ -150,9 +150,11 @@ _, err = dataset.AddTexts(ctx, vectoramp.AddTextsRequest{
 ### Search
 
 ```go
-includeMetadata := true
 dataset, err := client.Datasets.Get(ctx, "dataset-id")
-resp, err := dataset.Search(ctx, vectoramp.SearchRequest{
+resp, err := dataset.Search(ctx, "machine learning best practices", vectoramp.WithSearchTopK(10))
+
+includeMetadata := true
+resp, err = dataset.Search(ctx, vectoramp.SearchRequest{
     QueryText:        "machine learning best practices",
     TopK:             10,
     Filters:          map[string]string{"category": "engineering"},
@@ -161,7 +163,7 @@ resp, err := dataset.Search(ctx, vectoramp.SearchRequest{
 })
 ```
 
-Raw vector search is also supported with `Query: []float64{...}`.
+String searches default to `top_k: 10` when you omit `WithSearchTopK`. Raw vector search is also supported by passing `[]float64{...}` or a full `SearchRequest`.
 
 ## Ingestion
 
@@ -190,14 +192,12 @@ Typed builders make source creation safer while still preserving `CreateSourceRe
 
 ```go
 web, err := client.Sources.CreateWeb(ctx, vectoramp.WebSource{
-    Name:      "docs-site",
-    StartURLs: []string{"https://docs.example.com"},
+    StartURLs: []string{"https://docs.example.com"}, // name defaults to web-docs-example-com
     MaxDepth:  2,
 })
 
 s3, err := client.Sources.CreateS3(ctx, vectoramp.S3Source{
-    Name:            "product-docs-s3",
-    Bucket:          "my-bucket",
+    Bucket:          "my-bucket", // name defaults to s3-my-bucket
     Prefix:          "docs/",
     Region:          "us-east-1",
     AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
@@ -205,15 +205,12 @@ s3, err := client.Sources.CreateS3(ctx, vectoramp.S3Source{
 })
 
 gdrive, err := client.Sources.CreateGoogleDrive(ctx, vectoramp.GoogleDriveSource{
-    Name:               "shared-drive-docs",
     AuthMode:           "service_account",
     ServiceAccountJSON: os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON"),
     FolderIDs:          []string{"folder-id"},
 })
 
-upload, err := client.Sources.CreateFileUpload(ctx, vectoramp.FileUploadSource{
-    Name: "manual-upload-source",
-})
+upload, err := client.Sources.CreateFileUpload(ctx, vectoramp.FileUploadSource{})
 
 custom, err := client.Sources.Create(ctx, vectoramp.GenericSource{
     SourceType: "custom",
@@ -229,7 +226,6 @@ _ = custom
 
 ```go
 job, err := dataset.IngestSource(ctx, vectoramp.WebSource{
-    Name:      "release-notes",
     StartURLs: []string{"https://example.com/releases"},
 }, "default_pipeline")
 
@@ -243,7 +239,10 @@ For local files, the SDK creates a `file_upload` source, initializes presigned u
 
 ```go
 dataset, err := client.Datasets.Get(ctx, "dataset-id")
-job, err := dataset.IngestFiles(ctx, []string{"./docs/guide.pdf"}, &vectoramp.IngestFilesOptions{
+job, err := dataset.IngestFiles(ctx, []string{"./docs/guide.pdf"}, nil)
+
+// Override optional details only when you need them.
+job, err = dataset.IngestFiles(ctx, []string{"./docs/guide.pdf"}, &vectoramp.IngestFilesOptions{
     SourceName: "product-docs-upload",
 })
 
@@ -259,7 +258,7 @@ job, err = client.Ingestion.IngestFiles(ctx, dataset.ID, []string{"./docs/guide.
 answer, err := client.Ask(ctx, "What are the key product features?", vectoramp.WithAllDatasets())
 
 dataset, err := client.Datasets.Get(ctx, "dataset-id")
-answer, err = dataset.Ask(ctx, vectoramp.AskRequest{Query: "What are the key product features?", TopK: 5})
+answer, err = dataset.Ask(ctx, "What are the key product features?", vectoramp.WithTopK(5))
 ```
 
 Equivalent explicit call:
