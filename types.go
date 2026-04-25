@@ -11,6 +11,9 @@ type Pagination struct {
 }
 
 type Dataset struct {
+	service *DatasetService `json:"-"`
+	client  *Client         `json:"-"`
+
 	ID        string                 `json:"id"`
 	Name      string                 `json:"name"`
 	OrgID     string                 `json:"org_id,omitempty"`
@@ -22,6 +25,35 @@ type Dataset struct {
 	CreatedAt string                 `json:"created_at,omitempty"`
 	UpdatedAt string                 `json:"updated_at,omitempty"`
 	Metadata  Metadata               `json:"metadata,omitempty"`
+	Raw       json.RawMessage        `json:"-"`
+}
+
+func (d *Dataset) UnmarshalJSON(data []byte) error {
+	type alias Dataset
+	var out alias
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	*d = Dataset(out)
+	d.Raw = append(d.Raw[:0], data...)
+	return nil
+}
+
+func (d *Dataset) bind(s *DatasetService) {
+	d.service = s
+	if s != nil {
+		d.client = s.client
+	}
+}
+
+func (d *Dataset) datasetService() *DatasetService {
+	if d.service != nil {
+		return d.service
+	}
+	if d.client != nil {
+		return d.client.Datasets
+	}
+	panic("vectoramp: Dataset resource is not bound to a Client; get it from Client.Datasets.Create/Get/List before calling resource methods")
 }
 
 type EmbeddingConfig struct {
@@ -38,6 +70,12 @@ type DatasetList struct {
 
 func (p DatasetList) Pagination() Pagination {
 	return Pagination{Total: p.Total, Limit: p.Limit, Offset: p.Offset}
+}
+
+func (p *DatasetList) bind(s *DatasetService) {
+	for i := range p.Datasets {
+		p.Datasets[i].bind(s)
+	}
 }
 
 type CreateDatasetRequest struct {

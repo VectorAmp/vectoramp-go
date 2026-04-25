@@ -100,35 +100,60 @@ func TestDatasetListCreateGetDeleteSearchInsertAndAddTexts(t *testing.T) {
 				t.Fatalf("bad insert body: %#v", body)
 			}
 			w.Write([]byte(`{"inserted":2}`))
+		case r.Method == "POST" && r.URL.Path == "/intelligence/query":
+			seen["ask"] = true
+			body := decodeBody(t, r)
+			if body["dataset_id"] != "ds1" || body["query"] != "why" {
+				t.Fatalf("bad ask body: %#v", body)
+			}
+			w.Write([]byte(`{"answer":"because"}`))
+		case r.Method == "POST" && r.URL.Path == "/ingestion/jobs":
+			seen["ingestSource"] = true
+			body := decodeBody(t, r)
+			if body["dataset_id"] != "ds1" || body["source_id"] != "src1" || body["pipeline_id"] != "pipe1" {
+				t.Fatalf("bad ingest source body: %#v", body)
+			}
+			w.Write([]byte(`{"job_id":"job1","status":"pending"}`))
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
 		}
 	}))
 
 	list, err := c.Datasets.List(context.Background(), 10, 20)
-	if err != nil || list.Total != 1 || list.Pagination().Offset != 20 {
+	if err != nil || list.Total != 1 || list.Pagination().Offset != 20 || len(list.Datasets[0].Raw) == 0 {
 		t.Fatalf("list: %#v %v", list, err)
 	}
 	created, err := c.Datasets.Create(context.Background(), CreateDatasetRequest{Name: "docs", Dim: 3, Metric: "cosine"})
 	if err != nil || created.IndexType != "sable" {
 		t.Fatalf("create: %#v %v", created, err)
 	}
-	if _, err := c.Datasets.Get(context.Background(), "ds1"); err != nil {
-		t.Fatalf("get: %v", err)
+	got, err := c.Datasets.Get(context.Background(), "ds1")
+	if err != nil || got.ID != "ds1" || len(got.Raw) == 0 {
+		t.Fatalf("get: %#v %v", got, err)
 	}
 	includeMetadata := false
 	search, err := c.Datasets.Search(context.Background(), "ds1", SearchRequest{QueryText: "hello", TopK: 5, IncludeMetadata: &includeMetadata})
 	if err != nil || len(search.Results) != 1 {
 		t.Fatalf("search: %#v %v", search, err)
 	}
-	add, err := c.Datasets.AddTexts(context.Background(), "ds1", AddTextsRequest{Texts: []TextDocument{{ID: "a", Text: "one"}, {ID: "b", Text: "two", Metadata: Metadata{"kind": "note"}}}})
+	resourceSearch, err := created.Search(context.Background(), SearchRequest{QueryText: "hello", TopK: 5, IncludeMetadata: &includeMetadata})
+	if err != nil || len(resourceSearch.Results) != 1 {
+		t.Fatalf("resource search: %#v %v", resourceSearch, err)
+	}
+	if answer, err := got.Ask(context.Background(), AskRequest{Query: "why"}); err != nil || answer.Answer != "because" {
+		t.Fatalf("resource ask: %#v %v", answer, err)
+	}
+	if job, err := got.IngestSource(context.Background(), "src1", "pipe1"); err != nil || job.JobID != "job1" {
+		t.Fatalf("resource ingest source: %#v %v", job, err)
+	}
+	add, err := created.AddTexts(context.Background(), AddTextsRequest{Texts: []TextDocument{{ID: "a", Text: "one"}, {ID: "b", Text: "two", Metadata: Metadata{"kind": "note"}}}})
 	if err != nil || add.Inserted != 2 || add.Embeddings != 2 {
 		t.Fatalf("add texts: %#v %v", add, err)
 	}
-	if err := c.Datasets.Delete(context.Background(), "ds1"); err != nil {
+	if err := created.Delete(context.Background()); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	for _, k := range []string{"list", "create", "get", "search", "embed", "insert", "delete"} {
+	for _, k := range []string{"list", "create", "get", "search", "embed", "insert", "delete", "ask", "ingestSource"} {
 		if !seen[k] {
 			t.Fatalf("did not see %s", k)
 		}
