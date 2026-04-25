@@ -15,6 +15,7 @@ type Client struct {
 	transport    *RESTTransport
 	Datasets     *DatasetService
 	Ingestion    *IngestionService
+	Sources      *IngestionService
 	Intelligence *IntelligenceService
 }
 
@@ -29,6 +30,7 @@ func NewClient(apiKey string, opts ...Option) *Client {
 	}
 	c.Datasets = &DatasetService{client: c}
 	c.Ingestion = &IngestionService{client: c}
+	c.Sources = c.Ingestion
 	c.Intelligence = &IntelligenceService{client: c}
 	return c
 }

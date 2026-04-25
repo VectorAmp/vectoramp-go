@@ -293,3 +293,90 @@ type stringReadCloser struct{ *strings.Reader }
 func (s stringReadCloser) Close() error          { return nil }
 func ioNopCloser(s string) stringReadCloser      { return stringReadCloser{strings.NewReader(s)} }
 func osWriteFile(name string, data []byte) error { return os.WriteFile(name, data, 0600) }
+
+func TestTypedSourceBuildersAndHelpers(t *testing.T) {
+	createdBodies := []map[string]interface{}{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/v1/sources":
+			body := decodeBody(t, r)
+			createdBodies = append(createdBodies, body)
+			w.Write([]byte(`{"id":"src` + string(rune('1'+len(createdBodies)-1)) + `","name":"created"}`))
+		case r.Method == "POST" && r.URL.Path == "/ingestion/jobs":
+			body := decodeBody(t, r)
+			if body["dataset_id"] != "ds1" || body["source_id"] == "" || body["pipeline_id"] != "pipe1" {
+				t.Fatalf("bad typed ingest source job body: %#v", body)
+			}
+			w.Write([]byte(`{"job_id":"job1","status":"pending"}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+
+	robots := false
+	if _, err := c.Sources.CreateWeb(context.Background(), WebSource{
+		Name:             "site",
+		StartURLs:        []string{"https://example.com/docs"},
+		MaxDepth:         2,
+		AllowedDomains:   []string{"example.com"},
+		RespectRobotsTxt: &robots,
+		ConfigExtra:      map[string]interface{}{"max_pages": 25},
+	}); err != nil {
+		t.Fatalf("create web: %v", err)
+	}
+	if _, err := c.Sources.CreateS3(context.Background(), S3Source{
+		Name:            "bucket",
+		Bucket:          "docs",
+		Region:          "us-west-2",
+		AccessKeyID:     "AKIA",
+		SecretAccessKey: "secret",
+		FilePatterns:    []string{"*.pdf"},
+	}); err != nil {
+		t.Fatalf("create s3: %v", err)
+	}
+	if _, err := c.Sources.CreateGoogleDrive(context.Background(), GoogleDriveSource{
+		Name:               "drive",
+		AuthMode:           "service_account",
+		ServiceAccountJSON: `{"client_email":"svc@example.com"}`,
+		FolderIDs:          []string{"folder1"},
+	}); err != nil {
+		t.Fatalf("create gdrive: %v", err)
+	}
+	if _, err := c.Sources.CreateFileUpload(context.Background(), FileUploadSource{Name: "upload", MaxFilesPerJob: 5}); err != nil {
+		t.Fatalf("create file upload: %v", err)
+	}
+	if _, err := c.Sources.Create(context.Background(), GenericSource{SourceType: "custom", Name: "custom", Config: map[string]interface{}{"type": "custom"}}); err != nil {
+		t.Fatalf("create generic: %v", err)
+	}
+	ds := &Dataset{ID: "ds1", client: c}
+	if job, err := ds.IngestSource(context.Background(), WebSource{Name: "typed-web", StartURLs: []string{"https://example.com"}}, "pipe1"); err != nil || job.JobID != "job1" {
+		t.Fatalf("typed ingest source: %#v %v", job, err)
+	}
+
+	wantTypes := []string{"web", "s3", "gdrive", "file_upload", "custom", "web"}
+	if len(createdBodies) != len(wantTypes) {
+		t.Fatalf("created %d sources, want %d: %#v", len(createdBodies), len(wantTypes), createdBodies)
+	}
+	for i, want := range wantTypes {
+		if createdBodies[i]["source_type"] != want {
+			t.Fatalf("source %d type = %v, want %s body=%#v", i, createdBodies[i]["source_type"], want, createdBodies[i])
+		}
+	}
+	webConfig := createdBodies[0]["config"].(map[string]interface{})
+	if webConfig["type"] != "web" || webConfig["max_pages"].(float64) != 25 || webConfig["respect_robots_txt"] != false {
+		t.Fatalf("bad web config: %#v", webConfig)
+	}
+	s3Config := createdBodies[1]["config"].(map[string]interface{})
+	if s3Config["type"] != "s3" || s3Config["bucket"] != "docs" || s3Config["sync_mode"] != "incremental" {
+		t.Fatalf("bad s3 config: %#v", s3Config)
+	}
+	gdriveConfig := createdBodies[2]["config"].(map[string]interface{})
+	if gdriveConfig["type"] != "gdrive" || gdriveConfig["service_account_json"] == "" {
+		t.Fatalf("bad gdrive config: %#v", gdriveConfig)
+	}
+	fileConfig := createdBodies[3]["config"].(map[string]interface{})
+	if fileConfig["type"] != "file_upload" || fileConfig["storage_provider"] != "s3" || fileConfig["max_files_per_job"].(float64) != 5 {
+		t.Fatalf("bad file upload config: %#v", fileConfig)
+	}
+}

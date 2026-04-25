@@ -176,6 +176,8 @@ type SearchResponse struct {
 
 type Source struct {
 	ID          string                 `json:"id"`
+	SourceID    string                 `json:"source_id,omitempty"`
+	UUID        string                 `json:"uuid,omitempty"`
 	Name        string                 `json:"name"`
 	Type        string                 `json:"type,omitempty"`
 	SourceType  string                 `json:"source_type,omitempty"`

@@ -88,7 +88,11 @@ func (s *DatasetService) IngestFiles(ctx context.Context, datasetID string, path
 	return s.client.Ingestion.IngestFiles(ctx, datasetID, paths, opts)
 }
 
-func (s *DatasetService) IngestSource(ctx context.Context, datasetID, sourceID, pipelineID string) (*Job, error) {
+func (s *DatasetService) IngestSource(ctx context.Context, datasetID string, source interface{}, pipelineID string) (*Job, error) {
+	sourceID, err := s.client.Ingestion.resolveSourceID(ctx, source)
+	if err != nil {
+		return nil, err
+	}
 	return s.client.Ingestion.StartJob(ctx, StartIngestionRequest{SourceID: sourceID, DatasetID: datasetID, PipelineID: pipelineID})
 }
 
@@ -121,10 +125,10 @@ func (d *Dataset) IngestFiles(ctx context.Context, paths []string, opts *IngestF
 	return d.datasetService().IngestFiles(ctx, d.ID, paths, opts)
 }
 
-func (d *Dataset) IngestSource(ctx context.Context, sourceID string, pipelineID ...string) (*Job, error) {
+func (d *Dataset) IngestSource(ctx context.Context, source interface{}, pipelineID ...string) (*Job, error) {
 	pipeline := ""
 	if len(pipelineID) > 0 {
 		pipeline = pipelineID[0]
 	}
-	return d.datasetService().IngestSource(ctx, d.ID, sourceID, pipeline)
+	return d.datasetService().IngestSource(ctx, d.ID, source, pipeline)
 }

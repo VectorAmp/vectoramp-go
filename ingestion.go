@@ -21,7 +21,11 @@ func (s *IngestionService) GetSource(ctx context.Context, sourceID string) (*Sou
 	err := s.client.do(ctx, "GET", fmt.Sprintf("/ingestion/sources/%s", sourceID), nil, nil, &out)
 	return &out, err
 }
-func (s *IngestionService) CreateSource(ctx context.Context, req CreateSourceRequest) (*Source, error) {
+func (s *IngestionService) CreateSource(ctx context.Context, source interface{}) (*Source, error) {
+	req, ok := normalizeCreateSourceRequest(source)
+	if !ok {
+		return nil, fmt.Errorf("vectoramp: unsupported source create input %T", source)
+	}
 	var out Source
 	err := s.client.do(ctx, "POST", "/v1/sources", nil, req, &out)
 	return &out, err
@@ -75,7 +79,7 @@ func (s *IngestionService) IngestFiles(ctx context.Context, datasetID string, pa
 	for k, v := range opts.Metadata {
 		md[k] = v
 	}
-	src, err := s.CreateSource(ctx, CreateSourceRequest{SourceType: "file_upload", Name: name, Description: opts.Description, Config: map[string]interface{}{"storage_provider": "s3", "sync_mode": "full"}, Metadata: md})
+	src, err := s.CreateFileUpload(ctx, FileUploadSource{Name: name, Description: opts.Description, Metadata: md})
 	if err != nil {
 		return nil, err
 	}
