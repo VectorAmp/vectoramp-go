@@ -46,7 +46,7 @@ func main() {
         log.Fatal(err)
     }
 
-    _, err = client.Datasets.AddTexts(ctx, ds.ID, vectoramp.AddTextsRequest{
+    _, err = ds.AddTexts(ctx, vectoramp.AddTextsRequest{
         Texts: []vectoramp.TextDocument{
             {ID: "intro", Text: "VectorAmp is a high-performance vector database.", Metadata: vectoramp.Metadata{"section": "intro"}},
         },
@@ -55,7 +55,7 @@ func main() {
         log.Fatal(err)
     }
 
-    answer, err := client.Ask(ctx, "What is VectorAmp?", vectoramp.WithDataset(ds.ID), vectoramp.WithTopK(5))
+    answer, err := ds.Ask(ctx, vectoramp.AskRequest{Query: "What is VectorAmp?", TopK: 5})
     if err != nil {
         log.Fatal(err)
     }
@@ -109,11 +109,27 @@ err = client.Datasets.Delete(ctx, created.ID)
 
 `CreateDatasetRequest` does not include `IndexType`. The SDK always sends `index_type: "sable"`.
 
+`Create`, `Get`, and `List` return `Dataset` resource values. They still expose raw dataset fields like `ID`, `Name`, `Dim`, and `Metadata`, and also carry the client/service binding plus the original JSON bytes in `Raw`. You can use either service-style calls or resource-style calls:
+
+```go
+dataset, err := client.Datasets.Get(ctx, "dataset-id")
+resp, err := dataset.Search(ctx, vectoramp.SearchRequest{QueryText: "hello", TopK: 5})
+
+// Equivalent service-style call remains supported.
+resp, err = client.Datasets.Search(ctx, dataset.ID, vectoramp.SearchRequest{QueryText: "hello", TopK: 5})
+```
+
 ### Insert vectors
 
 ```go
-_, err := client.Datasets.Insert(ctx, "dataset-id", []vectoramp.Vector{
+dataset, err := client.Datasets.Get(ctx, "dataset-id")
+_, err = dataset.Insert(ctx, []vectoramp.Vector{
     {ID: "doc-1", Values: []float64{0.1, 0.2, 0.3}, Metadata: vectoramp.Metadata{"title": "Intro"}},
+})
+
+// Service-style remains available:
+_, err = client.Datasets.Insert(ctx, "dataset-id", []vectoramp.Vector{
+    {ID: "doc-2", Values: []float64{0.4, 0.5, 0.6}},
 })
 ```
 
@@ -122,7 +138,8 @@ _, err := client.Datasets.Insert(ctx, "dataset-id", []vectoramp.Vector{
 `AddTexts` embeds text through the dataset embedding model and inserts the resulting vectors.
 
 ```go
-_, err := client.Datasets.AddTexts(ctx, "dataset-id", vectoramp.AddTextsRequest{
+dataset, err := client.Datasets.Get(ctx, "dataset-id")
+_, err = dataset.AddTexts(ctx, vectoramp.AddTextsRequest{
     Texts: []vectoramp.TextDocument{
         {ID: "doc-1", Text: "Hello world", Metadata: vectoramp.Metadata{"source": "manual"}},
         {ID: "doc-2", Text: "Machine learning notes"},
@@ -134,7 +151,8 @@ _, err := client.Datasets.AddTexts(ctx, "dataset-id", vectoramp.AddTextsRequest{
 
 ```go
 includeMetadata := true
-resp, err := client.Datasets.Search(ctx, "dataset-id", vectoramp.SearchRequest{
+dataset, err := client.Datasets.Get(ctx, "dataset-id")
+resp, err := dataset.Search(ctx, vectoramp.SearchRequest{
     QueryText:        "machine learning best practices",
     TopK:             10,
     Filters:          map[string]string{"category": "engineering"},
@@ -153,9 +171,13 @@ Raw vector search is also supported with `Query: []float64{...}`.
 sources, err := client.Ingestion.ListSources(ctx, 50, 0)
 source, err := client.Ingestion.GetSource(ctx, sources.Sources[0].ID)
 
-job, err := client.Ingestion.StartJob(ctx, vectoramp.StartIngestionRequest{
+dataset, err := client.Datasets.Get(ctx, "dataset-id")
+job, err := dataset.IngestSource(ctx, source.ID)
+
+// Equivalent service-style call remains supported.
+job, err = client.Ingestion.StartJob(ctx, vectoramp.StartIngestionRequest{
     SourceID:  source.ID,
-    DatasetID: "dataset-id",
+    DatasetID: dataset.ID,
 })
 
 jobs, err := client.Ingestion.ListJobs(ctx, "dataset-id", 50, 0)
@@ -167,9 +189,13 @@ job, err = client.Ingestion.GetJob(ctx, job.JobID)
 For local files, the SDK creates a `file_upload` source, initializes presigned uploads, uploads file bytes, and completes the upload.
 
 ```go
-job, err := client.Ingestion.IngestFiles(ctx, "dataset-id", []string{"./docs/guide.pdf"}, &vectoramp.IngestFilesOptions{
+dataset, err := client.Datasets.Get(ctx, "dataset-id")
+job, err := dataset.IngestFiles(ctx, []string{"./docs/guide.pdf"}, &vectoramp.IngestFilesOptions{
     SourceName: "product-docs-upload",
 })
+
+// Service-style remains available:
+job, err = client.Ingestion.IngestFiles(ctx, dataset.ID, []string{"./docs/guide.pdf"}, nil)
 ```
 
 ## Intelligence / RAG
@@ -178,6 +204,9 @@ job, err := client.Ingestion.IngestFiles(ctx, "dataset-id", []string{"./docs/gui
 
 ```go
 answer, err := client.Ask(ctx, "What are the key product features?", vectoramp.WithAllDatasets())
+
+dataset, err := client.Datasets.Get(ctx, "dataset-id")
+answer, err = dataset.Ask(ctx, vectoramp.AskRequest{Query: "What are the key product features?", TopK: 5})
 ```
 
 Equivalent explicit call:
