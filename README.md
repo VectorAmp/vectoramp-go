@@ -184,6 +184,59 @@ jobs, err := client.Ingestion.ListJobs(ctx, "dataset-id", 50, 0)
 job, err = client.Ingestion.GetJob(ctx, job.JobID)
 ```
 
+### Typed source builders
+
+Typed builders make source creation safer while still preserving `CreateSourceRequest` for fully manual calls. Supported public `source_type` values include `s3`, `web`, `gdrive`, and `file_upload`; use `GenericSource` as an escape hatch for custom or future source types.
+
+```go
+web, err := client.Sources.CreateWeb(ctx, vectoramp.WebSource{
+    Name:      "docs-site",
+    StartURLs: []string{"https://docs.example.com"},
+    MaxDepth:  2,
+})
+
+s3, err := client.Sources.CreateS3(ctx, vectoramp.S3Source{
+    Name:            "product-docs-s3",
+    Bucket:          "my-bucket",
+    Prefix:          "docs/",
+    Region:          "us-east-1",
+    AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+    SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+})
+
+gdrive, err := client.Sources.CreateGoogleDrive(ctx, vectoramp.GoogleDriveSource{
+    Name:               "shared-drive-docs",
+    AuthMode:           "service_account",
+    ServiceAccountJSON: os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON"),
+    FolderIDs:          []string{"folder-id"},
+})
+
+upload, err := client.Sources.CreateFileUpload(ctx, vectoramp.FileUploadSource{
+    Name: "manual-upload-source",
+})
+
+custom, err := client.Sources.Create(ctx, vectoramp.GenericSource{
+    SourceType: "custom",
+    Name:       "custom-source",
+    Config:     map[string]interface{}{"type": "custom"},
+})
+
+_, _, _, _ = web, s3, gdrive, upload
+_ = custom
+```
+
+`Dataset.IngestSource` accepts either an existing source ID/`Source` or a typed builder. Passing a builder creates the source first, then starts the ingestion job.
+
+```go
+job, err := dataset.IngestSource(ctx, vectoramp.WebSource{
+    Name:      "release-notes",
+    StartURLs: []string{"https://example.com/releases"},
+}, "default_pipeline")
+
+// Existing source IDs still work.
+job, err = dataset.IngestSource(ctx, "source-id")
+```
+
 ### Filesystem upload ingestion
 
 For local files, the SDK creates a `file_upload` source, initializes presigned uploads, uploads file bytes, and completes the upload.
