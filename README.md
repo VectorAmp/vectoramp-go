@@ -1,93 +1,239 @@
-# Go
+# VectorAmp Go SDK
 
+Idiomatic Go client for the public VectorAmp API.
 
+- Default API base URL: `https://api.vectoramp.com`
+- Auth: `X-API-Key: <api_key>`
+- REST transport today, with a small transport interface so gRPC can be added later
+- Dataset creation always uses SABLE; the SDK intentionally does not expose an index type option
 
-## Getting started
+> This module is source-ready. It has not been published or tagged yet.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Install
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.com/VectorAmp/SDK/Go.git
-git branch -M main
-git push -uf origin main
+```bash
+go get gitlab.com/VectorAmp/SDK/Go
 ```
 
-## Integrate with your tools
+## Quick start
 
-* [Set up project integrations](https://gitlab.com/VectorAmp/SDK/Go/-/settings/integrations)
+```go
+package main
 
-## Collaborate with your team
+import (
+    "context"
+    "fmt"
+    "log"
+    "os"
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+    vectoramp "gitlab.com/VectorAmp/SDK/Go"
+)
 
-## Test and Deploy
+func main() {
+    ctx := context.Background()
+    client := vectoramp.NewClient(os.Getenv("VECTORAMP_API_KEY"))
 
-Use the built-in continuous integration in GitLab.
+    ds, err := client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{
+        Name:   "product-docs",
+        Dim:    2560,
+        Metric: "cosine",
+        Embedding: &vectoramp.EmbeddingConfig{
+            Provider: "vectoramp",
+            Model:    "Qwen/Qwen3-Embedding-4B",
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+    _, err = client.Datasets.AddTexts(ctx, ds.ID, vectoramp.AddTextsRequest{
+        Texts: []vectoramp.TextDocument{
+            {ID: "intro", Text: "VectorAmp is a high-performance vector database.", Metadata: vectoramp.Metadata{"section": "intro"}},
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
 
-***
+    answer, err := client.Ask(ctx, "What is VectorAmp?", vectoramp.WithDataset(ds.ID), vectoramp.WithTopK(5))
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(answer.Answer)
+}
+```
 
-# Editing this README
+## Configure the client
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+```go
+client := vectoramp.NewClient(
+    os.Getenv("VECTORAMP_API_KEY"),
+    vectoramp.WithBaseURL("https://api.vectoramp.com"),
+)
+```
 
-## Suggestions for a good README
+Custom HTTP client:
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```go
+client := vectoramp.NewClient(apiKey, vectoramp.WithHTTPClient(myHTTPClient))
+```
 
-## Name
-Choose a self-explaining name for your project.
+Custom transport for tests or future protocols:
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+```go
+type MyTransport struct{}
+func (t MyTransport) Do(ctx context.Context, req *vectoramp.Request) (*vectoramp.Response, error) {
+    // implement transport
+}
+client := vectoramp.NewClient(apiKey, vectoramp.WithTransport(MyTransport{}))
+```
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## Datasets
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+### List / get / create / delete
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```go
+page, err := client.Datasets.List(ctx, 50, 0)
+_ = page.Pagination()
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+dataset, err := client.Datasets.Get(ctx, "dataset-id")
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+created, err := client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{
+    Name:   "docs",
+    Dim:    2560,
+    Metric: "cosine",
+})
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+err = client.Datasets.Delete(ctx, created.ID)
+```
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+`CreateDatasetRequest` does not include `IndexType`. The SDK always sends `index_type: "sable"`.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+### Insert vectors
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```go
+_, err := client.Datasets.Insert(ctx, "dataset-id", []vectoramp.Vector{
+    {ID: "doc-1", Values: []float64{0.1, 0.2, 0.3}, Metadata: vectoramp.Metadata{"title": "Intro"}},
+})
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+### Add texts
 
-## License
-For open source projects, say how it is licensed.
+`AddTexts` embeds text through the dataset embedding model and inserts the resulting vectors.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```go
+_, err := client.Datasets.AddTexts(ctx, "dataset-id", vectoramp.AddTextsRequest{
+    Texts: []vectoramp.TextDocument{
+        {ID: "doc-1", Text: "Hello world", Metadata: vectoramp.Metadata{"source": "manual"}},
+        {ID: "doc-2", Text: "Machine learning notes"},
+    },
+})
+```
+
+### Search
+
+```go
+includeMetadata := true
+resp, err := client.Datasets.Search(ctx, "dataset-id", vectoramp.SearchRequest{
+    QueryText:        "machine learning best practices",
+    TopK:             10,
+    Filters:          map[string]string{"category": "engineering"},
+    IncludeDocuments: true,
+    IncludeMetadata:  &includeMetadata,
+})
+```
+
+Raw vector search is also supported with `Query: []float64{...}`.
+
+## Ingestion
+
+### Sources and jobs
+
+```go
+sources, err := client.Ingestion.ListSources(ctx, 50, 0)
+source, err := client.Ingestion.GetSource(ctx, sources.Sources[0].ID)
+
+job, err := client.Ingestion.StartJob(ctx, vectoramp.StartIngestionRequest{
+    SourceID:  source.ID,
+    DatasetID: "dataset-id",
+})
+
+jobs, err := client.Ingestion.ListJobs(ctx, "dataset-id", 50, 0)
+job, err = client.Ingestion.GetJob(ctx, job.JobID)
+```
+
+### Filesystem upload ingestion
+
+For local files, the SDK creates a `file_upload` source, initializes presigned uploads, uploads file bytes, and completes the upload.
+
+```go
+job, err := client.Ingestion.IngestFiles(ctx, "dataset-id", []string{"./docs/guide.pdf"}, &vectoramp.IngestFilesOptions{
+    SourceName: "product-docs-upload",
+})
+```
+
+## Intelligence / RAG
+
+### Non-streaming
+
+```go
+answer, err := client.Ask(ctx, "What are the key product features?", vectoramp.WithAllDatasets())
+```
+
+Equivalent explicit call:
+
+```go
+answer, err := client.Intelligence.Ask(ctx, vectoramp.AskRequest{
+    Query:     "What are the key product features?",
+    DatasetID: "all",
+    TopK:      5,
+})
+```
+
+### Streaming SSE
+
+```go
+stream, err := client.Intelligence.Stream(ctx, vectoramp.AskRequest{
+    Query:     "Summarize the launch plan",
+    DatasetID: "dataset-id",
+})
+if err != nil {
+    log.Fatal(err)
+}
+defer stream.Close()
+
+for {
+    event, ok := stream.Next()
+    if !ok {
+        break
+    }
+    if event.ChunkType == "text" {
+        fmt.Print(event.Content)
+    }
+}
+if err := stream.Err(); err != nil {
+    log.Fatal(err)
+}
+```
+
+## Errors
+
+Non-2xx responses return `*vectoramp.APIError`.
+
+```go
+if err != nil {
+    if apiErr, ok := err.(*vectoramp.APIError); ok {
+        fmt.Println(apiErr.StatusCode, apiErr.Message)
+    }
+}
+```
+
+## Development
+
+```bash
+go test ./...
+go test -race -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+```
+
+GitLab CI runs the race-enabled test job and publishes `coverage.out` as an artifact.
