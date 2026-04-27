@@ -395,3 +395,44 @@ type StreamEvent struct {
 	Metadata  Metadata `json:"metadata,omitempty"`
 	Raw       []byte
 }
+
+// DocumentListOptions controls cursor pagination for dataset document listing.
+// Cursor comes from a previous response's NextCursor; Status filters by the
+// catalog status such as "ready", "processing", or "failed".
+type DocumentListOptions struct {
+	Limit  int
+	Cursor string
+	Status string
+}
+
+// DatasetDocument is source/original document metadata returned by the dataset
+// document catalog. DownloadAvailable indicates whether the retained original
+// bytes can be fetched through DownloadDocument.
+type DatasetDocument struct {
+	ID                string   `json:"id"`
+	DatasetID         string   `json:"dataset_id,omitempty"`
+	SourceID          string   `json:"source_id,omitempty"`
+	SourceType        string   `json:"source_type,omitempty"`
+	ExternalID        string   `json:"external_id,omitempty"`
+	FileName          string   `json:"file_name,omitempty"`
+	MimeType          string   `json:"mime_type,omitempty"`
+	SizeBytes         *int64   `json:"size_bytes,omitempty"`
+	ContentHash       string   `json:"content_hash,omitempty"`
+	Status            string   `json:"status,omitempty"`
+	Version           *int     `json:"version,omitempty"`
+	ChunkCount        *int     `json:"chunk_count,omitempty"`
+	EmbeddingsCount   *int     `json:"embeddings_count,omitempty"`
+	DownloadAvailable bool     `json:"download_available,omitempty"`
+	CreatedAt         string   `json:"created_at,omitempty"`
+	UpdatedAt         string   `json:"updated_at,omitempty"`
+	Raw               Metadata `json:"-"`
+}
+
+// DatasetDocumentList is a cursor-paginated collection of retained source
+// documents. Use NextCursor, when non-empty, as DocumentListOptions.Cursor for
+// the next request; do not infer pagination from offsets or page length.
+type DatasetDocumentList struct {
+	Documents  []DatasetDocument `json:"documents"`
+	NextCursor string            `json:"next_cursor,omitempty"`
+	Limit      int               `json:"limit,omitempty"`
+}

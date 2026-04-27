@@ -75,6 +75,18 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, body
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+func (c *Client) download(ctx context.Context, method, path string, q url.Values) ([]byte, error) {
+	resp, err := c.rt.Do(ctx, &Request{Method: method, Path: path, Query: q})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, decodeAPIError(resp)
+	}
+	return io.ReadAll(resp.Body)
+}
+
 func (c *Client) stream(ctx context.Context, method, path string, body interface{}) (io.ReadCloser, error) {
 	resp, err := c.rt.Do(ctx, &Request{Method: method, Path: path, Body: body, Stream: true})
 	if err != nil {
@@ -109,6 +121,20 @@ func paginationQuery(limit, offset int) url.Values {
 	}
 	if offset > 0 {
 		q.Set("offset", strconv.Itoa(offset))
+	}
+	return q
+}
+
+func documentListQuery(opts DocumentListOptions) url.Values {
+	q := url.Values{}
+	if opts.Limit > 0 {
+		q.Set("limit", strconv.Itoa(opts.Limit))
+	}
+	if opts.Cursor != "" {
+		q.Set("cursor", opts.Cursor)
+	}
+	if opts.Status != "" {
+		q.Set("status", opts.Status)
 	}
 	return q
 }

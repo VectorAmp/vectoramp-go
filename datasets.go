@@ -80,6 +80,25 @@ func (s *DatasetService) Delete(ctx context.Context, datasetID string) error {
 	return s.client.do(ctx, "DELETE", fmt.Sprintf("/datasets/%s", datasetID), nil, nil, nil)
 }
 
+// ListDocuments lists retained source documents for a dataset using cursor pagination.
+//
+// Pass DocumentListOptions.Cursor from the previous response's NextCursor to
+// fetch the next page. The API intentionally does not expose offset pagination
+// for documents, so callers should not infer totals or offsets.
+func (s *DatasetService) ListDocuments(ctx context.Context, datasetID string, opts DocumentListOptions) (*DatasetDocumentList, error) {
+	var out DatasetDocumentList
+	err := s.client.do(ctx, "GET", fmt.Sprintf("/datasets/%s/documents", datasetID), documentListQuery(opts), nil, &out)
+	return &out, err
+}
+
+// DownloadDocument downloads the retained original bytes for a dataset document.
+//
+// The default HTTP transport follows redirects, so this returns the final raw
+// object bytes rather than JSON metadata.
+func (s *DatasetService) DownloadDocument(ctx context.Context, datasetID, documentID string) ([]byte, error) {
+	return s.client.download(ctx, "GET", fmt.Sprintf("/datasets/%s/documents/%s/download", datasetID, documentID), nil)
+}
+
 // Search queries a dataset by text, vector, or full SearchRequest.
 //
 // input may be a string query_text, []float64 query vector, SearchRequest, or
@@ -192,6 +211,16 @@ func (s *DatasetService) Ask(ctx context.Context, datasetID string, input interf
 // Search queries this dataset. See DatasetService.Search.
 func (d *Dataset) Search(ctx context.Context, input interface{}, opts ...SearchOption) (*SearchResponse, error) {
 	return d.datasetService().Search(ctx, d.ID, input, opts...)
+}
+
+// ListDocuments lists retained source documents for this dataset.
+func (d *Dataset) ListDocuments(ctx context.Context, opts DocumentListOptions) (*DatasetDocumentList, error) {
+	return d.datasetService().ListDocuments(ctx, d.ID, opts)
+}
+
+// DownloadDocument downloads a retained original source document from this dataset.
+func (d *Dataset) DownloadDocument(ctx context.Context, documentID string) ([]byte, error) {
+	return d.datasetService().DownloadDocument(ctx, d.ID, documentID)
 }
 
 // Insert writes vectors into this dataset. See DatasetService.Insert.
