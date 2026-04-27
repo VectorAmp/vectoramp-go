@@ -160,6 +160,41 @@ func TestDatasetListCreateGetDeleteSearchInsertAndAddTexts(t *testing.T) {
 	}
 }
 
+func TestDatasetDocumentsListAndDownload(t *testing.T) {
+	bytes := []byte{0x00, 0x01, 0xff, 'V', 'A'}
+	fileServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/raw/doc.bin" {
+			t.Fatalf("unexpected raw download path: %s", r.URL.Path)
+		}
+		w.Write(bytes)
+	}))
+	defer fileServer.Close()
+
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/datasets/ds1/documents":
+			if r.URL.Query().Get("limit") != "2" || r.URL.Query().Get("cursor") != "cur1" || r.URL.Query().Get("status") != "ready" {
+				t.Fatalf("bad document cursor query: %s", r.URL.RawQuery)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"documents":[{"id":"doc1","file_name":"a.pdf","status":"ready","download_available":true}],"next_cursor":"cur2","limit":2}`))
+		case r.Method == "GET" && r.URL.Path == "/datasets/ds1/documents/doc1/download":
+			http.Redirect(w, r, fileServer.URL+"/raw/doc.bin", http.StatusFound)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+
+	page, err := c.Datasets.ListDocuments(context.Background(), "ds1", DocumentListOptions{Limit: 2, Cursor: "cur1", Status: "ready"})
+	if err != nil || page.NextCursor != "cur2" || len(page.Documents) != 1 || !page.Documents[0].DownloadAvailable {
+		t.Fatalf("list documents: %#v %v", page, err)
+	}
+	got, err := c.Datasets.DownloadDocument(context.Background(), "ds1", "doc1")
+	if err != nil || !reflect.DeepEqual(got, bytes) {
+		t.Fatalf("download bytes = %#v err=%v", got, err)
+	}
+}
+
 func TestIngestionSourcesJobsAndFilesystemUpload(t *testing.T) {
 	uploadHit := false
 	uploadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

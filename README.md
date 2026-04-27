@@ -117,6 +117,40 @@ resp, err := dataset.Search(ctx, "hello", vectoramp.WithSearchTopK(5))
 resp, err = client.Datasets.Search(ctx, dataset.ID, vectoramp.SearchRequest{QueryText: "hello", TopK: 5})
 ```
 
+### Source documents
+
+Datasets can expose retained original source documents from ingestion or file upload. Document listing is cursor-based: pass `NextCursor` into the next call and do not assume offsets or totals. `DownloadDocument` returns the original bytes and follows API/storage redirects.
+
+```go
+page, err := client.Datasets.ListDocuments(ctx, "dataset-id", vectoramp.DocumentListOptions{
+    Limit:  50,
+    Cursor: "",
+    Status: "ready",
+})
+if err != nil {
+    // handle error
+}
+for _, doc := range page.Documents {
+    if doc.DownloadAvailable {
+        bytes, err := client.Datasets.DownloadDocument(ctx, "dataset-id", doc.ID)
+        _ = bytes
+        _ = err
+    }
+}
+
+if page.NextCursor != "" {
+    next, err := client.Datasets.ListDocuments(ctx, "dataset-id", vectoramp.DocumentListOptions{Cursor: page.NextCursor})
+    _ = next
+    _ = err
+}
+
+// Resource-style helpers are available too.
+dataset, err := client.Datasets.Get(ctx, "dataset-id")
+docs, err := dataset.ListDocuments(ctx, vectoramp.DocumentListOptions{Limit: 25})
+raw, err := dataset.DownloadDocument(ctx, docs.Documents[0].ID)
+_ = raw
+```
+
 ### Insert vectors
 
 ```go
