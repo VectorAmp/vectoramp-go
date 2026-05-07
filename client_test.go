@@ -266,6 +266,26 @@ func TestIngestionSourcesJobsAndFilesystemUpload(t *testing.T) {
 	}
 }
 
+func TestSearchTextAliasNormalizesToQueryText(t *testing.T) {
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/datasets/ds1/search" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+		body := decodeBody(t, r)
+		if body["query_text"] != "rare zebra quokka" || body["top_k"].(float64) != 3 {
+			t.Fatalf("bad search_text alias body: %#v", body)
+		}
+		if _, ok := body["sparse_query"]; ok {
+			t.Fatalf("client should not require sparse_query for easy hybrid search: %#v", body)
+		}
+		w.Write([]byte(`{"results":[]}`))
+	}))
+
+	if _, err := c.Datasets.Search(context.Background(), "ds1", SearchRequest{SearchText: "rare zebra quokka"}, WithSearchTopK(3)); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+}
+
 func TestMinimalConvenienceInputs(t *testing.T) {
 	seen := map[string]bool{}
 	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

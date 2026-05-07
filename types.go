@@ -171,7 +171,7 @@ type EmbedResponse struct {
 
 // SearchRequest is the request body for dataset search.
 //
-// Provide either Query for vector search or QueryText for text search. TopK
+// Provide either Query for vector search or QueryText/SearchText for text search. For hybrid indexes, the API uses this single text field for both dense embedding generation and sparse matching when configured. TopK
 // defaults to 10 when using Search convenience inputs and left at zero. Filters,
 // AdvancedFilters, embedding settings, hybrid fields, and SABLE tuning overrides
 // are optional. IncludeMetadata is a pointer so nil preserves the API default
@@ -180,6 +180,8 @@ type EmbedResponse struct {
 type SearchRequest struct {
 	Query               []float64         `json:"query,omitempty"`
 	QueryText           string            `json:"query_text,omitempty"`
+	// SearchText is an alias for QueryText used by the public API docs; Search normalizes it to query_text.
+	SearchText          string            `json:"-"`
 	EmbeddingModel      string            `json:"embedding_model,omitempty"`
 	EmbeddingProvider   string            `json:"embedding_provider,omitempty"`
 	TopK                int               `json:"top_k"`
