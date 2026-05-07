@@ -277,6 +277,10 @@ func normalizeSearchRequest(input interface{}, opts ...SearchOption) (SearchRequ
 	for _, opt := range opts {
 		opt(&req)
 	}
+	if req.QueryText == "" && req.SearchText != "" {
+		req.QueryText = req.SearchText
+	}
+	req.SearchText = ""
 	if req.TopK == 0 {
 		req.TopK = defaultSearchTopK
 	}
