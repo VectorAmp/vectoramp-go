@@ -12,8 +12,12 @@ const (
 	SourceTypeS3 = "s3"
 	// SourceTypeWeb identifies web crawler ingestion sources.
 	SourceTypeWeb = "web"
+	// SourceTypeGCS identifies Google Cloud Storage ingestion sources.
+	SourceTypeGCS = "gcs"
 	// SourceTypeGDrive identifies Google Drive ingestion sources.
 	SourceTypeGDrive = "gdrive"
+	// SourceTypeJira identifies Jira ingestion sources.
+	SourceTypeJira = "jira"
 	// SourceTypeFileUpload identifies presigned file-upload sources.
 	SourceTypeFileUpload = "file_upload"
 )
@@ -52,6 +56,8 @@ type WebSource struct {
 	AllowedDomains   []string
 	RateLimitMS      int
 	RespectRobotsTxt *bool
+	IncludeAssets    *bool
+	MaxAssetsPerPage int
 	Selectors        *WebSelectors
 	Headers          map[string]string
 	Description      string
@@ -79,6 +85,8 @@ func (s WebSource) ToCreateSourceRequest() CreateSourceRequest {
 	if s.RespectRobotsTxt != nil {
 		config["respect_robots_txt"] = *s.RespectRobotsTxt
 	}
+	setBoolPtr(config, "include_assets", s.IncludeAssets)
+	setNonZero(config, "max_assets_per_page", s.MaxAssetsPerPage)
 	if s.Selectors != nil {
 		config["selectors"] = s.Selectors
 	}
@@ -128,6 +136,33 @@ func (s S3Source) ToCreateSourceRequest() CreateSourceRequest {
 	setNonZero(config, "max_file_size_mb", s.MaxFileSizeMB)
 	mergeExtra(config, s.ConfigExtra)
 	return CreateSourceRequest{SourceType: SourceTypeS3, Name: defaultString(s.Name, s3SourceDefaultName(s.Bucket)), Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
+}
+
+// GCSSource describes a Google Cloud Storage ingestion source.
+type GCSSource struct {
+	Name            string
+	Bucket          string
+	Prefix          string
+	ProjectID       string
+	CredentialsJSON string
+	FilePatterns    []string
+	MaxFileSizeMB   int
+	SyncMode        string
+	Description     string
+	Metadata        Metadata
+	ConfigExtra     map[string]interface{}
+}
+
+// ToCreateSourceRequest converts GCSSource into a create-source request.
+func (s GCSSource) ToCreateSourceRequest() CreateSourceRequest {
+	config := map[string]interface{}{"type": SourceTypeGCS, "bucket": s.Bucket, "sync_mode": defaultString(s.SyncMode, "incremental")}
+	setNonEmpty(config, "prefix", s.Prefix)
+	setNonEmpty(config, "project_id", s.ProjectID)
+	setNonEmpty(config, "credentials_json", s.CredentialsJSON)
+	setStringSlice(config, "file_patterns", s.FilePatterns)
+	setNonZero(config, "max_file_size_mb", s.MaxFileSizeMB)
+	mergeExtra(config, s.ConfigExtra)
+	return CreateSourceRequest{SourceType: SourceTypeGCS, Name: defaultString(s.Name, gcsSourceDefaultName(s.Bucket)), Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
 }
 
 // GoogleDriveSource describes a Google Drive ingestion source. The public
@@ -223,6 +258,40 @@ func (s FileUploadSource) ToCreateSourceRequest() CreateSourceRequest {
 	return CreateSourceRequest{SourceType: SourceTypeFileUpload, Name: name, Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
 }
 
+// JiraSource describes a Jira ingestion source. IncludeComments defaults to true.
+type JiraSource struct {
+	Name            string
+	CloudID         string
+	AccessToken     string
+	ProjectKeys     []string
+	JQL             string
+	IncludeComments *bool
+	SyncMode        string
+	Description     string
+	Metadata        Metadata
+	ConfigExtra     map[string]interface{}
+}
+
+// ToCreateSourceRequest converts JiraSource into a create-source request.
+func (s JiraSource) ToCreateSourceRequest() CreateSourceRequest {
+	config := map[string]interface{}{"type": SourceTypeJira, "cloud_id": s.CloudID, "include_comments": true, "sync_mode": defaultString(s.SyncMode, "incremental")}
+	setNonEmpty(config, "access_token", s.AccessToken)
+	setStringSlice(config, "project_keys", s.ProjectKeys)
+	setNonEmpty(config, "jql", s.JQL)
+	setBoolPtr(config, "include_comments", s.IncludeComments)
+	mergeExtra(config, s.ConfigExtra)
+	hint := s.CloudID
+	if len(s.ProjectKeys) > 0 && s.ProjectKeys[0] != "" {
+		hint = s.ProjectKeys[0]
+	}
+	return CreateSourceRequest{SourceType: SourceTypeJira, Name: defaultString(s.Name, defaultSourceName(SourceTypeJira, hint)), Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
+}
+
+// CreateJira creates a Jira ingestion source and returns it.
+func (s *IngestionService) CreateJira(ctx context.Context, source JiraSource) (*Source, error) {
+	return s.CreateSource(ctx, source)
+}
+
 // Create is an alias for CreateSource.
 func (s *IngestionService) Create(ctx context.Context, source interface{}) (*Source, error) {
 	return s.CreateSource(ctx, source)
@@ -235,6 +304,11 @@ func (s *IngestionService) CreateWeb(ctx context.Context, source WebSource) (*So
 
 // CreateS3 creates an S3 ingestion source and returns it.
 func (s *IngestionService) CreateS3(ctx context.Context, source S3Source) (*Source, error) {
+	return s.CreateSource(ctx, source)
+}
+
+// CreateGCS creates a Google Cloud Storage ingestion source and returns it.
+func (s *IngestionService) CreateGCS(ctx context.Context, source GCSSource) (*Source, error) {
 	return s.CreateSource(ctx, source)
 }
 
@@ -371,6 +445,20 @@ func s3SourceDefaultName(bucket string) string {
 		return "go-sdk-s3-source"
 	}
 	return "s3-" + sanitizeName(bucket)
+}
+
+func gcsSourceDefaultName(bucket string) string {
+	if bucket == "" {
+		return "go-sdk-gcs-source"
+	}
+	return defaultSourceName(SourceTypeGCS, bucket)
+}
+
+func defaultSourceName(sourceType, hint string) string {
+	if hint == "" {
+		return sourceType
+	}
+	return sourceType + "-" + sanitizeName(hint)
 }
 
 func gdriveSourceDefaultName(source GoogleDriveSource) string {

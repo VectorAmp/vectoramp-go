@@ -222,7 +222,7 @@ job, err = client.Ingestion.GetJob(ctx, job.JobID)
 
 ### Typed source builders
 
-Typed builders make source creation safer while still preserving `CreateSourceRequest` for fully manual calls. Supported public `source_type` values include `s3`, `web`, `gdrive`, and `file_upload`; use `GenericSource` as an escape hatch for custom or future source types.
+Typed builders make source creation safer while still preserving `CreateSourceRequest` for fully manual calls. Supported public `source_type` values include `s3`, `web`, `gcs`, `gdrive`, `file_upload`, and `jira`; use `GenericSource` as an escape hatch for custom or future source types.
 
 ```go
 web, err := client.Sources.CreateWeb(ctx, vectoramp.WebSource{
