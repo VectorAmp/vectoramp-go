@@ -241,6 +241,8 @@ func TestIngestionSourcesJobsAndFilesystemUpload(t *testing.T) {
 			w.Write([]byte(`{"jobs":[{"job_id":"job2","status":"completed"}],"total":1,"limit":5,"offset":0}`))
 		case r.Method == "GET" && r.URL.Path == "/ingestion/jobs/job2":
 			w.Write([]byte(`{"job_id":"job2","status":"completed"}`))
+		case r.Method == "POST" && r.URL.Path == "/ingestion/jobs/job2/retry":
+			w.Write([]byte(`{"job_id":"job3","status":"pending"}`))
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
 		}
@@ -260,6 +262,9 @@ func TestIngestionSourcesJobsAndFilesystemUpload(t *testing.T) {
 	}
 	if _, err := c.Ingestion.GetJob(context.Background(), "job2"); err != nil {
 		t.Fatalf("get job: %v", err)
+	}
+	if job, err := c.Ingestion.RetryJob(context.Background(), "job2"); err != nil || job.JobID != "job3" {
+		t.Fatalf("retry job: %#v %v", job, err)
 	}
 	if job, err := c.Ingestion.IngestFiles(context.Background(), "ds1", []string{tmp}, nil); err != nil || job.JobID != "job1" || !uploadHit {
 		t.Fatalf("ingest files: %#v upload=%v err=%v", job, uploadHit, err)
