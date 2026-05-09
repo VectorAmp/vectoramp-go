@@ -77,6 +77,13 @@ func (s *IngestionService) GetJob(ctx context.Context, jobID string) (*Job, erro
 	return &out, err
 }
 
+// RetryJob queues a fresh full-rerun job from an eligible failed or cancelled job.
+func (s *IngestionService) RetryJob(ctx context.Context, jobID string) (*Job, error) {
+	var out Job
+	err := s.client.do(ctx, "POST", fmt.Sprintf("/ingestion/jobs/%s/retry", jobID), nil, nil, &out)
+	return &out, err
+}
+
 // InitUpload initializes presigned uploads for a file_upload source.
 //
 // req.Files describes the files to upload. The response includes a job ID and
