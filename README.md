@@ -1,5 +1,8 @@
 # VectorAmp Go SDK
 
+[![pipeline status](https://gitlab.com/VectorAmp/SDK/Go/badges/main/pipeline.svg)](https://gitlab.com/VectorAmp/SDK/Go/-/commits/main)
+[![coverage report](https://gitlab.com/VectorAmp/SDK/Go/badges/main/coverage.svg)](https://gitlab.com/VectorAmp/SDK/Go/-/commits/main)
+
 Idiomatic Go client for the public VectorAmp API.
 
 - Default API base URL: `https://api.vectoramp.com`
