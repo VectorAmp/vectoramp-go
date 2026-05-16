@@ -21,6 +21,7 @@ type Client struct {
 	Datasets     *DatasetService
 	Ingestion    *IngestionService
 	Sources      *IngestionService
+	Schedules    *ScheduleService
 	Intelligence *IntelligenceService
 }
 
@@ -41,6 +42,7 @@ func NewClient(apiKey string, opts ...Option) *Client {
 	c.Datasets = &DatasetService{client: c}
 	c.Ingestion = &IngestionService{client: c}
 	c.Sources = c.Ingestion
+	c.Schedules = &ScheduleService{client: c}
 	c.Intelligence = &IntelligenceService{client: c}
 	return c
 }

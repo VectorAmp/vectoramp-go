@@ -501,3 +501,69 @@ func TestTypedSourceBuildersAndHelpers(t *testing.T) {
 		t.Fatalf("bad file upload config: %#v", fileConfig)
 	}
 }
+
+func TestSchedulesCRUDAndTrigger(t *testing.T) {
+	var lastBody map[string]interface{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/ingestion/schedules":
+			if r.URL.Query().Get("limit") != "10" {
+				t.Fatalf("missing limit: %s", r.URL.RawQuery)
+			}
+			w.Write([]byte(`{"schedules":[{"id":"sch_1","cron":"0 * * * *","enabled":true}],"total":1,"limit":10,"offset":0}`))
+		case r.Method == "GET" && r.URL.Path == "/ingestion/schedules/sch_1":
+			w.Write([]byte(`{"id":"sch_1","cron":"0 * * * *","enabled":true}`))
+		case r.Method == "POST" && r.URL.Path == "/ingestion/schedules":
+			lastBody = decodeBody(t, r)
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"sch_2","cron":"0 0 * * *","enabled":true}`))
+		case r.Method == "PATCH" && r.URL.Path == "/ingestion/schedules/sch_2":
+			lastBody = decodeBody(t, r)
+			w.Write([]byte(`{"id":"sch_2","cron":"0 0 * * *","enabled":false}`))
+		case r.Method == "DELETE" && r.URL.Path == "/ingestion/schedules/sch_2":
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"deleted":true}`))
+		case r.Method == "POST" && r.URL.Path == "/ingestion/schedules/sch_1/trigger":
+			w.WriteHeader(http.StatusAccepted)
+			w.Write([]byte(`{"job_id":"job_42"}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+
+	page, err := c.Schedules.List(context.Background(), 10, 0)
+	if err != nil || page.Total != 1 || page.Schedules[0].ID != "sch_1" {
+		t.Fatalf("list: %#v err=%v", page, err)
+	}
+	if got, err := c.Schedules.Get(context.Background(), "sch_1"); err != nil || got.ID != "sch_1" {
+		t.Fatalf("get: %#v err=%v", got, err)
+	}
+	created, err := c.Schedules.Create(context.Background(), CreateScheduleRequest{
+		SourceID:  "src_1",
+		DatasetID: "ds_1",
+		Cron:      "0 0 * * *",
+		Timezone:  "UTC",
+	})
+	if err != nil || created.ID != "sch_2" {
+		t.Fatalf("create: %#v err=%v", created, err)
+	}
+	if lastBody["source_id"] != "src_1" || lastBody["dataset_id"] != "ds_1" || lastBody["cron"] != "0 0 * * *" || lastBody["timezone"] != "UTC" {
+		t.Fatalf("bad create body: %#v", lastBody)
+	}
+	disabled := false
+	updated, err := c.Schedules.Update(context.Background(), "sch_2", UpdateScheduleRequest{Enabled: &disabled})
+	if err != nil || updated.Enabled {
+		t.Fatalf("update: %#v err=%v", updated, err)
+	}
+	if v, ok := lastBody["enabled"].(bool); !ok || v {
+		t.Fatalf("update body did not send enabled=false: %#v", lastBody)
+	}
+	if err := c.Schedules.Delete(context.Background(), "sch_2"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	trig, err := c.Schedules.Trigger(context.Background(), "sch_1")
+	if err != nil || trig.JobID != "job_42" {
+		t.Fatalf("trigger: %#v err=%v", trig, err)
+	}
+}
