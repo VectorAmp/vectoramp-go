@@ -181,10 +181,15 @@ func putFile(ctx context.Context, uploadURL, path, contentType string) error {
 		return err
 	}
 	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, "PUT", uploadURL, f)
 	if err != nil {
 		return err
 	}
+	req.ContentLength = st.Size()
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
