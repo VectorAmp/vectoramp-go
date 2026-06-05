@@ -39,7 +39,7 @@ func main() {
         Metric: "cosine",
         Embedding: &vectoramp.EmbeddingConfig{
             Provider: "vectoramp",
-            Model:    "Qwen/Qwen3-Embedding-4B",
+            Model:    "VectorAmp-Embedding-4B",
         },
     })
     if err != nil {

@@ -218,7 +218,7 @@ func TestIngestionSourcesJobsAndFilesystemUpload(t *testing.T) {
 			w.Write([]byte(`{"sources":[{"id":"src1","name":"web","type":"web"}],"total":1,"limit":2,"offset":1}`))
 		case r.Method == "GET" && r.URL.Path == "/ingestion/sources/src1":
 			w.Write([]byte(`{"id":"src1","name":"web","type":"web"}`))
-		case r.Method == "POST" && r.URL.Path == "/v1/sources":
+		case r.Method == "POST" && r.URL.Path == "/ingestion/sources":
 			body := decodeBody(t, r)
 			if body["source_type"] != "file_upload" {
 				t.Fatalf("bad source body: %#v", body)
@@ -228,9 +228,9 @@ func TestIngestionSourcesJobsAndFilesystemUpload(t *testing.T) {
 				t.Fatalf("file upload source name should be generated from dataset id, got %#v body=%#v", name, body)
 			}
 			w.Write([]byte(`{"source_id":"src1","name":"upload","source_type":"file_upload"}`))
-		case r.Method == "POST" && r.URL.Path == "/v1/sources/src1/upload/init":
+		case r.Method == "POST" && r.URL.Path == "/ingestion/sources/src1/upload/init":
 			w.Write([]byte(`{"job_id":"job1","uploads":[{"file_id":"file1","file_name":"doc.txt","upload_url":"` + uploadServer.URL + `"}]}`))
-		case r.Method == "POST" && r.URL.Path == "/v1/sources/src1/upload/complete":
+		case r.Method == "POST" && r.URL.Path == "/ingestion/sources/src1/upload/complete":
 			w.Write([]byte(`{"job_id":"job1","status":"pending"}`))
 		case r.Method == "POST" && r.URL.Path == "/ingestion/jobs":
 			w.Write([]byte(`{"job_id":"job2","status":"pending"}`))
@@ -400,7 +400,7 @@ func TestTypedSourceBuildersAndHelpers(t *testing.T) {
 	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == "POST" && r.URL.Path == "/v1/sources":
+		case r.Method == "POST" && r.URL.Path == "/ingestion/sources":
 			body := decodeBody(t, r)
 			createdBodies = append(createdBodies, body)
 			w.Write([]byte(`{"id":"src` + string(rune('1'+len(createdBodies)-1)) + `","name":"created"}`))
