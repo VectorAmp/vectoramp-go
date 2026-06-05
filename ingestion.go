@@ -42,7 +42,7 @@ func (s *IngestionService) CreateSource(ctx context.Context, source interface{})
 		return nil, fmt.Errorf("vectoramp: unsupported source create input %T", source)
 	}
 	var out Source
-	err := s.client.do(ctx, "POST", "/v1/sources", nil, req, &out)
+	err := s.client.do(ctx, "POST", "/ingestion/sources", nil, req, &out)
 	return &out, err
 }
 
@@ -90,14 +90,14 @@ func (s *IngestionService) RetryJob(ctx context.Context, jobID string) (*Job, er
 // one upload target per file.
 func (s *IngestionService) InitUpload(ctx context.Context, sourceID string, req InitUploadRequest) (*InitUploadResponse, error) {
 	var out InitUploadResponse
-	err := s.client.do(ctx, "POST", fmt.Sprintf("/v1/sources/%s/upload/init", sourceID), nil, req, &out)
+	err := s.client.do(ctx, "POST", fmt.Sprintf("/ingestion/sources/%s/upload/init", sourceID), nil, req, &out)
 	return &out, err
 }
 
 // CompleteUpload completes a presigned file-upload job and returns the job.
 func (s *IngestionService) CompleteUpload(ctx context.Context, sourceID string, req CompleteUploadRequest) (*Job, error) {
 	var out Job
-	err := s.client.do(ctx, "POST", fmt.Sprintf("/v1/sources/%s/upload/complete", sourceID), nil, req, &out)
+	err := s.client.do(ctx, "POST", fmt.Sprintf("/ingestion/sources/%s/upload/complete", sourceID), nil, req, &out)
 	return &out, err
 }
 
@@ -165,7 +165,14 @@ func (s *IngestionService) IngestFiles(ctx context.Context, datasetID string, pa
 		}
 		fileIDs = append(fileIDs, u.FileID)
 	}
-	return s.CompleteUpload(ctx, sourceID, CompleteUploadRequest{JobID: init.JobID, FileIDs: fileIDs})
+	job, err := s.CompleteUpload(ctx, sourceID, CompleteUploadRequest{JobID: init.JobID, FileIDs: fileIDs})
+	if err != nil {
+		return nil, err
+	}
+	if job.JobID == "" {
+		job.JobID = init.JobID
+	}
+	return job, nil
 }
 
 func putFile(ctx context.Context, uploadURL, path, contentType string) error {
@@ -174,10 +181,15 @@ func putFile(ctx context.Context, uploadURL, path, contentType string) error {
 		return err
 	}
 	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, "PUT", uploadURL, f)
 	if err != nil {
 		return err
 	}
+	req.ContentLength = st.Size()
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
