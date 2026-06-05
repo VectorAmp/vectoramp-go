@@ -165,7 +165,14 @@ func (s *IngestionService) IngestFiles(ctx context.Context, datasetID string, pa
 		}
 		fileIDs = append(fileIDs, u.FileID)
 	}
-	return s.CompleteUpload(ctx, sourceID, CompleteUploadRequest{JobID: init.JobID, FileIDs: fileIDs})
+	job, err := s.CompleteUpload(ctx, sourceID, CompleteUploadRequest{JobID: init.JobID, FileIDs: fileIDs})
+	if err != nil {
+		return nil, err
+	}
+	if job.JobID == "" {
+		job.JobID = init.JobID
+	}
+	return job, nil
 }
 
 func putFile(ctx context.Context, uploadURL, path, contentType string) error {
