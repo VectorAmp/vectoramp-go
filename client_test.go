@@ -80,7 +80,7 @@ func TestDatasetListCreateGetDeleteSearchInsertAndAddTexts(t *testing.T) {
 		case r.Method == "POST" && r.URL.Path == "/datasets/ds1/search":
 			seen["search"] = true
 			body := decodeBody(t, r)
-			if body["query_text"] != "hello" || body["top_k"].(float64) != 5 || body["include_metadata"] != false {
+			if body["query_text"] != "hello" || body["top_k"].(float64) != 5 || body["include_metadata"] != false || body["rerank"] != true {
 				t.Fatalf("bad search body: %#v", body)
 			}
 			w.Write([]byte(`{"results":[{"id":123,"score":0.9,"metadata":{"title":"A"}}],"dataset_id":"ds1","query_time_ms":1.5}`))
@@ -132,11 +132,11 @@ func TestDatasetListCreateGetDeleteSearchInsertAndAddTexts(t *testing.T) {
 		t.Fatalf("get: %#v %v", got, err)
 	}
 	includeMetadata := false
-	search, err := c.Datasets.Search(context.Background(), "ds1", SearchRequest{QueryText: "hello", TopK: 5, IncludeMetadata: &includeMetadata})
+	search, err := c.Datasets.Search(context.Background(), "ds1", SearchRequest{QueryText: "hello", TopK: 5, IncludeMetadata: &includeMetadata, Rerank: true})
 	if err != nil || len(search.Results) != 1 {
 		t.Fatalf("search: %#v %v", search, err)
 	}
-	resourceSearch, err := created.Search(context.Background(), SearchRequest{QueryText: "hello", TopK: 5, IncludeMetadata: &includeMetadata})
+	resourceSearch, err := created.Search(context.Background(), SearchRequest{QueryText: "hello", TopK: 5, IncludeMetadata: &includeMetadata, Rerank: true})
 	if err != nil || len(resourceSearch.Results) != 1 {
 		t.Fatalf("resource search: %#v %v", resourceSearch, err)
 	}
@@ -299,7 +299,7 @@ func TestMinimalConvenienceInputs(t *testing.T) {
 		case r.Method == "POST" && r.URL.Path == "/datasets/ds1/search":
 			seen["search"] = true
 			body := decodeBody(t, r)
-			if body["query_text"] != "hello" || body["top_k"].(float64) != 3 || body["include_metadata"] != false {
+			if body["query_text"] != "hello" || body["top_k"].(float64) != 3 || body["include_metadata"] != false || body["rerank"].(map[string]interface{})["enabled"] != true {
 				t.Fatalf("bad convenience search body: %#v", body)
 			}
 			w.Write([]byte(`{"results":[]}`))
@@ -332,7 +332,7 @@ func TestMinimalConvenienceInputs(t *testing.T) {
 	}))
 
 	ds := &Dataset{ID: "ds1", client: c}
-	if _, err := ds.Search(context.Background(), "hello", WithSearchTopK(3), WithSearchMetadata(false)); err != nil {
+	if _, err := ds.Search(context.Background(), "hello", WithSearchTopK(3), WithSearchMetadata(false), WithSearchRerankConfig(RerankConfig{Enabled: true})); err != nil {
 		t.Fatalf("convenience search: %v", err)
 	}
 	if _, err := ds.AddTexts(context.Background(), []string{"one", "two"}, WithEmbedding("openai", "text-embedding-3-small")); err != nil {

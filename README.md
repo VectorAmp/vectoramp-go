@@ -185,7 +185,7 @@ _, err = dataset.AddTexts(ctx, vectoramp.AddTextsRequest{
 
 ```go
 dataset, err := client.Datasets.Get(ctx, "dataset-id")
-resp, err := dataset.Search(ctx, "machine learning best practices", vectoramp.WithSearchTopK(10))
+resp, err := dataset.Search(ctx, "machine learning best practices", vectoramp.WithSearchTopK(10), vectoramp.WithSearchRerank(true))
 
 includeMetadata := true
 resp, err = dataset.Search(ctx, vectoramp.SearchRequest{
@@ -194,6 +194,7 @@ resp, err = dataset.Search(ctx, vectoramp.SearchRequest{
     Filters:          map[string]string{"category": "engineering"},
     IncludeDocuments: true,
     IncludeMetadata:  &includeMetadata,
+    Rerank:           vectoramp.RerankConfig{Enabled: true}, // vectoramp / VectorAmp-Rerank-v1
 })
 ```
 

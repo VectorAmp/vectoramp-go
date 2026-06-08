@@ -24,6 +24,16 @@ func WithSearchDocuments(include bool) SearchOption {
 	return func(r *SearchRequest) { r.IncludeDocuments = include }
 }
 
+// WithSearchRerank enables or disables VectorAmp reranking for search results.
+func WithSearchRerank(enabled bool) SearchOption {
+	return func(r *SearchRequest) { r.Rerank = enabled }
+}
+
+// WithSearchRerankConfig sets rerank options. Only Enabled is required; provider defaults to vectoramp and model to VectorAmp-Rerank-v1.
+func WithSearchRerankConfig(config RerankConfig) SearchOption {
+	return func(r *SearchRequest) { r.Rerank = config }
+}
+
 // AddTextsOption customizes an AddTextsRequest built from convenience inputs.
 type AddTextsOption func(*AddTextsRequest)
 

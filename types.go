@@ -169,6 +169,14 @@ type EmbedResponse struct {
 	Embedding  []float64   `json:"embedding,omitempty"`
 }
 
+// RerankConfig configures VectorAmp search reranking. Only Enabled is required;
+// provider defaults to vectoramp and model defaults to VectorAmp-Rerank-v1.
+type RerankConfig struct {
+	Enabled  bool   `json:"enabled"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
 // SearchRequest is the request body for dataset search.
 //
 // Provide either Query for vector search or QueryText/SearchText for text search. For hybrid indexes, the API uses this single text field for both dense embedding generation and sparse matching when configured. TopK
@@ -178,8 +186,8 @@ type EmbedResponse struct {
 // (true), while false explicitly omits metadata from results. IncludeDocuments
 // controls doc_kind/doc_value fields.
 type SearchRequest struct {
-	Query               []float64         `json:"query,omitempty"`
-	QueryText           string            `json:"query_text,omitempty"`
+	Query     []float64 `json:"query,omitempty"`
+	QueryText string    `json:"query_text,omitempty"`
 	// SearchText is an alias for QueryText used by the public API docs; Search normalizes it to query_text.
 	SearchText          string            `json:"-"`
 	EmbeddingModel      string            `json:"embedding_model,omitempty"`
@@ -195,6 +203,7 @@ type SearchRequest struct {
 	IncludeEmbeddings   bool              `json:"include_embeddings,omitempty"`
 	IncludeDocuments    bool              `json:"include_documents,omitempty"`
 	IncludeMetadata     *bool             `json:"include_metadata,omitempty"`
+	Rerank              interface{}       `json:"rerank,omitempty"`
 }
 
 // AdvancedFilter describes one structured metadata filter.
