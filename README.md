@@ -353,3 +353,13 @@ go tool cover -func=coverage.out
 ```
 
 GitLab CI runs the race-enabled test job and publishes `coverage.out` as an artifact.
+
+### Intelligence sessions
+
+```go
+session, err := client.Intelligence.CreateSession(ctx, vectoramp.SessionCreateRequest{Title: "Planning", DatasetID: dataset.ID})
+_, err = client.Intelligence.AppendMessage(ctx, session.ID, vectoramp.SessionMessageCreateRequest{Role: "user", Content: "Summarize the docs"})
+messages, err := client.Intelligence.ListMessages(ctx, session.ID, 100)
+```
+
+Intelligence answers return `Sources` and `Chunks`. Inline `[1]` citations refer to `Sources[0]`; `PreviewRef` is an opaque preview token, not a storage key.
