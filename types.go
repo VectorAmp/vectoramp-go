@@ -372,30 +372,87 @@ type AskResponse struct {
 
 // SourceCitation describes a source cited by an intelligence answer.
 type SourceCitation struct {
-	Name         string     `json:"name,omitempty"`
-	Path         string     `json:"path,omitempty"`
-	URL          *string    `json:"url,omitempty"`
-	SourceType   string     `json:"source_type,omitempty"`
-	ContentType  string     `json:"content_type,omitempty"`
-	Relevance    float64    `json:"relevance,omitempty"`
-	Pages        []int      `json:"pages,omitempty"`
-	ChunkCount   int        `json:"chunk_count,omitempty"`
-	Preview      string     `json:"preview,omitempty"`
-	Chunks       []RAGChunk `json:"chunks,omitempty"`
-	FileID       string     `json:"file_id,omitempty"`
-	ThumbnailURL *string    `json:"thumbnail_url,omitempty"`
+	Name              string      `json:"name,omitempty"`
+	Path              string      `json:"path,omitempty"`
+	URL               *string     `json:"url,omitempty"`
+	DatasetID         string      `json:"dataset_id,omitempty"`
+	DatasetDocumentID string      `json:"dataset_document_id,omitempty"`
+	SourceType        string      `json:"source_type,omitempty"`
+	ContentType       string      `json:"content_type,omitempty"`
+	Relevance         float64     `json:"relevance,omitempty"`
+	Pages             []int       `json:"pages,omitempty"`
+	SheetNames        []string    `json:"sheet_names,omitempty"`
+	ChunkCount        int         `json:"chunk_count,omitempty"`
+	Preview           string      `json:"preview,omitempty"`
+	Chunks            []RAGChunk  `json:"chunks,omitempty"`
+	TimestampStart    interface{} `json:"timestamp_start,omitempty"`
+	TimestampEnd      interface{} `json:"timestamp_end,omitempty"`
+	FileID            string      `json:"file_id,omitempty"`
+	ThumbnailURL      *string     `json:"thumbnail_url,omitempty"`
+	PreviewRef        string      `json:"preview_ref,omitempty"`
 }
 
 // RAGChunk is a retrieved chunk used or returned by an intelligence query.
 type RAGChunk struct {
-	ID        string      `json:"id,omitempty"`
-	ChunkID   string      `json:"chunk_id,omitempty"`
-	Text      string      `json:"text,omitempty"`
-	Score     float64     `json:"score,omitempty"`
-	Source    string      `json:"source,omitempty"`
-	SourceURL *string     `json:"source_url,omitempty"`
-	Page      interface{} `json:"page,omitempty"`
-	Metadata  Metadata    `json:"metadata,omitempty"`
+	ID          string      `json:"id,omitempty"`
+	ChunkID     string      `json:"chunk_id,omitempty"`
+	Text        string      `json:"text,omitempty"`
+	Score       float64     `json:"score,omitempty"`
+	Source      string      `json:"source,omitempty"`
+	SourceURL   *string     `json:"source_url,omitempty"`
+	Page        interface{} `json:"page,omitempty"`
+	Metadata    Metadata    `json:"metadata,omitempty"`
+	ChunkIndex  int         `json:"chunk_index,omitempty"`
+	SheetName   string      `json:"sheet_name,omitempty"`
+	RowStart    int         `json:"row_start,omitempty"`
+	RowEnd      int         `json:"row_end,omitempty"`
+	ColumnNames []string    `json:"column_names,omitempty"`
+}
+
+// SessionCreateRequest is the request body for creating a persistent Intelligence session.
+type SessionCreateRequest struct {
+	Title       string   `json:"title,omitempty"`
+	WorkspaceID string   `json:"workspace_id,omitempty"`
+	DatasetID   string   `json:"dataset_id,omitempty"`
+	Metadata    Metadata `json:"metadata,omitempty"`
+}
+
+// IntelligenceSession is a persistent Intelligence workspace/chat session.
+type IntelligenceSession struct {
+	ID          string   `json:"id"`
+	Title       string   `json:"title,omitempty"`
+	WorkspaceID string   `json:"workspace_id,omitempty"`
+	DatasetID   string   `json:"dataset_id,omitempty"`
+	Metadata    Metadata `json:"metadata,omitempty"`
+	CreatedAt   string   `json:"created_at,omitempty"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+}
+
+// SessionMessageCreateRequest is the request body for appending a session message.
+type SessionMessageCreateRequest struct {
+	Role     string   `json:"role"`
+	Content  string   `json:"content"`
+	Metadata Metadata `json:"metadata,omitempty"`
+}
+
+// SessionMessage is one message stored in a persistent Intelligence session.
+type SessionMessage struct {
+	ID        string   `json:"id"`
+	SessionID string   `json:"session_id,omitempty"`
+	Role      string   `json:"role"`
+	Content   string   `json:"content"`
+	Metadata  Metadata `json:"metadata,omitempty"`
+	CreatedAt string   `json:"created_at,omitempty"`
+}
+
+// SessionList is the API envelope returned by ListSessions.
+type SessionList struct {
+	Sessions []IntelligenceSession `json:"sessions"`
+}
+
+// MessageList is the API envelope returned by ListMessages.
+type MessageList struct {
+	Messages []SessionMessage `json:"messages"`
 }
 
 // StreamEvent is one decoded server-sent event from an intelligence stream.

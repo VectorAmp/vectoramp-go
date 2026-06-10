@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -140,3 +142,50 @@ func normalizeAskRequest(input interface{}, opts ...AskOption) (AskRequest, erro
 	}
 	return req, nil
 }
+
+// CreateSession creates a persistent Intelligence session.
+func (s *IntelligenceService) CreateSession(ctx context.Context, req SessionCreateRequest) (*IntelligenceSession, error) {
+	var out IntelligenceSession
+	err := s.client.do(ctx, "POST", "/intelligence/sessions", nil, req, &out)
+	return &out, err
+}
+
+// ListSessions lists persistent Intelligence sessions. Pass limit <= 0 to use the API default.
+func (s *IntelligenceService) ListSessions(ctx context.Context, limit int) (*SessionList, error) {
+	q := makeLimitQuery(limit)
+	var out SessionList
+	err := s.client.do(ctx, "GET", "/intelligence/sessions", q, nil, &out)
+	return &out, err
+}
+
+// GetSession fetches one persistent Intelligence session.
+func (s *IntelligenceService) GetSession(ctx context.Context, id string) (*IntelligenceSession, error) {
+	var out IntelligenceSession
+	err := s.client.do(ctx, "GET", "/intelligence/sessions/"+urlPathEscape(id), nil, nil, &out)
+	return &out, err
+}
+
+// AppendMessage appends a message to a persistent Intelligence session.
+func (s *IntelligenceService) AppendMessage(ctx context.Context, sessionID string, req SessionMessageCreateRequest) (*SessionMessage, error) {
+	var out SessionMessage
+	err := s.client.do(ctx, "POST", "/intelligence/sessions/"+urlPathEscape(sessionID)+"/messages", nil, req, &out)
+	return &out, err
+}
+
+// ListMessages lists messages in a persistent Intelligence session. Pass limit <= 0 to use the API default.
+func (s *IntelligenceService) ListMessages(ctx context.Context, sessionID string, limit int) (*MessageList, error) {
+	q := makeLimitQuery(limit)
+	var out MessageList
+	err := s.client.do(ctx, "GET", "/intelligence/sessions/"+urlPathEscape(sessionID)+"/messages", q, nil, &out)
+	return &out, err
+}
+
+func makeLimitQuery(limit int) url.Values {
+	q := url.Values{}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	return q
+}
+
+func urlPathEscape(value string) string { return url.PathEscape(value) }

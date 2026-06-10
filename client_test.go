@@ -567,3 +567,67 @@ func TestSchedulesCRUDAndTrigger(t *testing.T) {
 		t.Fatalf("trigger: %#v err=%v", trig, err)
 	}
 }
+
+func TestIntelligenceSessionsAndMessages(t *testing.T) {
+	seen := map[string]bool{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/intelligence/sessions":
+			seen["create"] = true
+			body := decodeBody(t, r)
+			if body["workspace_id"] != "ws1" || body["dataset_id"] != "ds1" || body["title"] != "Planning" {
+				t.Fatalf("bad create session body: %#v", body)
+			}
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"sess1","title":"Planning"}`))
+		case r.Method == "GET" && r.URL.Path == "/intelligence/sessions":
+			seen["list"] = true
+			if r.URL.Query().Get("limit") != "25" {
+				t.Fatalf("bad sessions query: %s", r.URL.RawQuery)
+			}
+			w.Write([]byte(`{"sessions":[{"id":"sess1"}]}`))
+		case r.Method == "GET" && r.URL.Path == "/intelligence/sessions/sess%2F1":
+			seen["get"] = true
+			w.Write([]byte(`{"id":"sess1"}`))
+		case r.Method == "POST" && r.URL.Path == "/intelligence/sessions/sess%2F1/messages":
+			seen["append"] = true
+			body := decodeBody(t, r)
+			if body["role"] != "user" || body["content"] != "hello" {
+				t.Fatalf("bad append body: %#v", body)
+			}
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"msg1","role":"user","content":"hello"}`))
+		case r.Method == "GET" && r.URL.Path == "/intelligence/sessions/sess%2F1/messages":
+			seen["messages"] = true
+			if r.URL.Query().Get("limit") != "50" {
+				t.Fatalf("bad messages query: %s", r.URL.RawQuery)
+			}
+			w.Write([]byte(`{"messages":[{"id":"msg1","role":"user","content":"hello"}]}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+
+	ctx := context.Background()
+	if session, err := c.Intelligence.CreateSession(ctx, SessionCreateRequest{Title: "Planning", WorkspaceID: "ws1", DatasetID: "ds1", Metadata: Metadata{"team": "eng"}}); err != nil || session.ID != "sess1" {
+		t.Fatalf("create session: %#v %v", session, err)
+	}
+	if sessions, err := c.Intelligence.ListSessions(ctx, 25); err != nil || len(sessions.Sessions) != 1 {
+		t.Fatalf("list sessions: %#v %v", sessions, err)
+	}
+	if session, err := c.Intelligence.GetSession(ctx, "sess/1"); err != nil || session.ID != "sess1" {
+		t.Fatalf("get session: %#v %v", session, err)
+	}
+	if msg, err := c.Intelligence.AppendMessage(ctx, "sess/1", SessionMessageCreateRequest{Role: "user", Content: "hello", Metadata: Metadata{"turn": 1}}); err != nil || msg.ID != "msg1" {
+		t.Fatalf("append message: %#v %v", msg, err)
+	}
+	if messages, err := c.Intelligence.ListMessages(ctx, "sess/1", 50); err != nil || len(messages.Messages) != 1 {
+		t.Fatalf("list messages: %#v %v", messages, err)
+	}
+	for _, k := range []string{"create", "list", "get", "append", "messages"} {
+		if !seen[k] {
+			t.Fatalf("did not see %s", k)
+		}
+	}
+}
