@@ -73,12 +73,22 @@ func (s *DatasetService) Get(ctx context.Context, datasetID string) (*Dataset, e
 
 // Create creates a SABLE dataset and returns the created resource.
 //
-// req.Name and req.Dim identify the dataset and vector dimension. Metric,
-// tuning, embedding, and metadata are optional. The SDK always sends
-// index_type="sable"; public dataset creation is SABLE-only.
+// Only req.Name is required. When omitted, req.Dim is inferred from the
+// embedding model (defaulting to vectoramp/VectorAmp-Embedding-4B → 2560),
+// req.Metric defaults to cosine, and the embedding defaults to the VectorAmp 4B
+// model. Set req.Hybrid to create a hybrid (dense + sparse) index. The SDK
+// always sends index_type="sable"; public dataset creation is SABLE-only.
+//
+// A minimal create needs only a name:
+//
+//	ds, err := client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{Name: "docs"})
 func (s *DatasetService) Create(ctx context.Context, req CreateDatasetRequest) (*Dataset, error) {
+	prepared, err := req.withDefaults()
+	if err != nil {
+		return nil, err
+	}
 	var out Dataset
-	err := s.client.do(ctx, "POST", "/datasets", nil, req, &out)
+	err = s.client.do(ctx, "POST", "/datasets", nil, prepared, &out)
 	if err == nil {
 		out.bind(s)
 	}
@@ -173,7 +183,11 @@ func (s *DatasetService) AddTexts(ctx context.Context, datasetID string, input i
 		if i < len(embeddings) {
 			vals = embeddings[i]
 		}
-		vectors[i] = Vector{ID: t.ID, Values: vals, Metadata: md}
+		id := t.ID
+		if id.IsZero() {
+			id = StringID(fmt.Sprintf("text-%d", i+1))
+		}
+		vectors[i] = Vector{ID: id, Values: vals, Metadata: md}
 	}
 	inserted, err := s.Insert(ctx, datasetID, vectors)
 	if err != nil {
@@ -308,11 +322,11 @@ func normalizeAddTextsRequest(input interface{}, opts ...AddTextsOption) (AddTex
 		}
 		req = *v
 	case string:
-		req.Texts = []TextDocument{{ID: "text-1", Text: v}}
+		req.Texts = []TextDocument{{Text: v}}
 	case []string:
 		req.Texts = make([]TextDocument, len(v))
 		for i, text := range v {
-			req.Texts[i] = TextDocument{ID: fmt.Sprintf("text-%d", i+1), Text: text}
+			req.Texts[i] = TextDocument{Text: text}
 		}
 	case []TextDocument:
 		req.Texts = append([]TextDocument(nil), v...)

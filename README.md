@@ -1,18 +1,20 @@
 # VectorAmp Go SDK
 
-Idiomatic Go client for the public VectorAmp API.
+Idiomatic Go client for the public [VectorAmp](https://vectoramp.com) API.
 
 - Default API base URL: `https://api.vectoramp.com`
 - Auth: `X-API-Key: <api_key>`
 - REST transport today, with a small transport interface so gRPC can be added later
 - Dataset creation always uses SABLE; the SDK intentionally does not expose an index type option
 
-> This module is source-ready. It has not been published or tagged yet.
-
 ## Install
 
 ```bash
-go get gitlab.com/VectorAmp/SDK/Go
+go get github.com/vectoramp/vectoramp-go
+```
+
+```go
+import vectoramp "github.com/vectoramp/vectoramp-go"
 ```
 
 ## Quick start
@@ -26,30 +28,24 @@ import (
     "log"
     "os"
 
-    vectoramp "gitlab.com/VectorAmp/SDK/Go"
+    vectoramp "github.com/vectoramp/vectoramp-go"
 )
 
 func main() {
     ctx := context.Background()
     client := vectoramp.NewClient(os.Getenv("VECTORAMP_API_KEY"))
 
-    ds, err := client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{
-        Name:   "product-docs",
-        Dim:    2560,
-        Metric: "cosine",
-        Embedding: &vectoramp.EmbeddingConfig{
-            Provider: "vectoramp",
-            Model:    "VectorAmp-Embedding-4B",
-        },
-    })
+    // Only a name is required. Dim is inferred (2560), the embedding defaults to
+    // VectorAmp-Embedding-4B, the metric defaults to cosine, and the index is SABLE.
+    ds, err := client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{Name: "product-docs"})
     if err != nil {
         log.Fatal(err)
     }
 
-    _, err = ds.AddTexts(ctx, []string{
+    // Object -> method: operate on the returned dataset directly.
+    if _, err := ds.AddTexts(ctx, []string{
         "VectorAmp is a high-performance vector database.",
-    })
-    if err != nil {
+    }); err != nil {
         log.Fatal(err)
     }
 
@@ -63,17 +59,16 @@ func main() {
 
 ## Configure the client
 
+`NewClient` needs only an API key; everything else has a sane default.
+
 ```go
 client := vectoramp.NewClient(
     os.Getenv("VECTORAMP_API_KEY"),
     vectoramp.WithBaseURL("https://api.vectoramp.com"),
 )
-```
 
-Custom HTTP client:
-
-```go
-client := vectoramp.NewClient(apiKey, vectoramp.WithHTTPClient(myHTTPClient))
+// Custom HTTP client:
+client = vectoramp.NewClient(apiKey, vectoramp.WithHTTPClient(myHTTPClient))
 ```
 
 Custom transport for tests or future protocols:
@@ -88,107 +83,97 @@ client := vectoramp.NewClient(apiKey, vectoramp.WithTransport(MyTransport{}))
 
 ## Datasets
 
-### List / get / create / delete
+### Create
+
+Only a name is required. `Dim` is inferred from the embedding model, the metric
+defaults to `cosine`, the embedding defaults to `vectoramp/VectorAmp-Embedding-4B`,
+and the index is always SABLE. `CreateDatasetRequest` has no `IndexType` field —
+the SDK always sends `index_type: "sable"`.
+
+```go
+// Minimal: name only.
+ds, err := client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{Name: "docs"})
+
+// Hybrid (dense + sparse) index.
+ds, err = client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{Name: "docs", Hybrid: true})
+
+// OpenAI embedding (dim inferred: small -> 1536, large -> 3072).
+ds, err = client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{
+    Name:      "docs",
+    Embedding: vectoramp.OpenAIEmbedding("large"),
+})
+
+// Custom / unknown embedding models require an explicit Dim.
+ds, err = client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{
+    Name:      "docs",
+    Dim:       768,
+    Embedding: &vectoramp.EmbeddingConfig{Provider: "acme", Model: "acme-embed-v1"},
+})
+```
+
+### List / get / delete
 
 ```go
 page, err := client.Datasets.List(ctx, 50, 0)
 _ = page.Pagination()
 
-dataset, err := client.Datasets.Get(ctx, "dataset-id")
+ds, err := client.Datasets.Get(ctx, "dataset-id")
 
-created, err := client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{
-    Name:   "docs",
-    Dim:    2560,
-    Metric: "cosine",
-})
-
-err = client.Datasets.Delete(ctx, created.ID)
+err = ds.Delete(ctx) // object -> method
+// or: client.Datasets.Delete(ctx, "dataset-id")
 ```
 
-`CreateDatasetRequest` does not include `IndexType`. The SDK always sends `index_type: "sable"`.
-
-`Create`, `Get`, and `List` return `Dataset` resource values. They still expose raw dataset fields like `ID`, `Name`, `Dim`, and `Metadata`, and also carry the client/service binding plus the original JSON bytes in `Raw`. You can use either service-style calls or resource-style calls:
-
-```go
-dataset, err := client.Datasets.Get(ctx, "dataset-id")
-resp, err := dataset.Search(ctx, "hello", vectoramp.WithSearchTopK(5))
-
-// Explicit request structs and service-style calls remain supported.
-resp, err = client.Datasets.Search(ctx, dataset.ID, vectoramp.SearchRequest{QueryText: "hello", TopK: 5})
-```
-
-### Source documents
-
-Datasets can expose retained original source documents from ingestion or file upload. Document listing is cursor-based: pass `NextCursor` into the next call and do not assume offsets or totals. `DownloadDocument` returns the original bytes and follows API/storage redirects.
-
-```go
-page, err := client.Datasets.ListDocuments(ctx, "dataset-id", vectoramp.DocumentListOptions{
-    Limit:  50,
-    Cursor: "",
-    Status: "ready",
-})
-if err != nil {
-    // handle error
-}
-for _, doc := range page.Documents {
-    if doc.DownloadAvailable {
-        bytes, err := client.Datasets.DownloadDocument(ctx, "dataset-id", doc.ID)
-        _ = bytes
-        _ = err
-    }
-}
-
-if page.NextCursor != "" {
-    next, err := client.Datasets.ListDocuments(ctx, "dataset-id", vectoramp.DocumentListOptions{Cursor: page.NextCursor})
-    _ = next
-    _ = err
-}
-
-// Resource-style helpers are available too.
-dataset, err := client.Datasets.Get(ctx, "dataset-id")
-docs, err := dataset.ListDocuments(ctx, vectoramp.DocumentListOptions{Limit: 25})
-raw, err := dataset.DownloadDocument(ctx, docs.Documents[0].ID)
-_ = raw
-```
+`Create`, `Get`, and `List` return bound `Dataset` values. Call instance methods
+directly (`ds.Search(...)`) or use the service-style form
+(`client.Datasets.Search(id, ...)`) — both are supported everywhere.
 
 ### Insert vectors
 
-```go
-dataset, err := client.Datasets.Get(ctx, "dataset-id")
-_, err = dataset.Insert(ctx, []vectoramp.Vector{
-    {ID: "doc-1", Values: []float64{0.1, 0.2, 0.3}, Metadata: vectoramp.Metadata{"title": "Intro"}},
-})
+Vector ids accept **strings or integers**. Integer ids serialize as JSON numbers
+so the API keeps them as-is; leave the id unset to let the API assign one.
 
-// Service-style remains available:
-_, err = client.Datasets.Insert(ctx, "dataset-id", []vectoramp.Vector{
-    {ID: "doc-2", Values: []float64{0.4, 0.5, 0.6}},
+```go
+ds, err := client.Datasets.Get(ctx, "dataset-id")
+_, err = ds.Insert(ctx, []vectoramp.Vector{
+    {ID: vectoramp.StringID("doc-1"), Values: []float64{0.1, 0.2, 0.3}, Metadata: vectoramp.Metadata{"title": "Intro"}},
+    {ID: vectoramp.IntID(42), Values: []float64{0.4, 0.5, 0.6}}, // serialized as "id": 42
+    {Values: []float64{0.7, 0.8, 0.9}},                          // no id -> API assigns one
 })
 ```
 
 ### Add texts
 
-`AddTexts` embeds text through the dataset embedding model and inserts the resulting vectors. For quick inserts, pass a string or `[]string`; the SDK generates stable IDs (`text-1`, `text-2`, ...). Use `AddTextsRequest` when you need custom IDs or metadata.
+`AddTexts` embeds text through the dataset embedding model and inserts the
+resulting vectors. Pass a string or `[]string` for quick inserts; the SDK
+generates stable ids (`text-1`, `text-2`, ...). Use `AddTextsRequest` for custom
+ids (string or numeric) and metadata. The source text is copied into
+`metadata.text` when not already present.
 
 ```go
-dataset, err := client.Datasets.Get(ctx, "dataset-id")
-_, err = dataset.AddTexts(ctx, []string{"Hello world", "Machine learning notes"})
+ds, err := client.Datasets.Get(ctx, "dataset-id")
+_, err = ds.AddTexts(ctx, []string{"Hello world", "Machine learning notes"})
 
-_, err = dataset.AddTexts(ctx, vectoramp.AddTextsRequest{
+_, err = ds.AddTexts(ctx, vectoramp.AddTextsRequest{
     Texts: []vectoramp.TextDocument{
-        {ID: "doc-1", Text: "Hello world", Metadata: vectoramp.Metadata{"source": "manual"}},
-        {ID: "doc-2", Text: "Machine learning notes"},
+        {ID: vectoramp.StringID("doc-1"), Text: "Hello world", Metadata: vectoramp.Metadata{"source": "manual"}},
+        {ID: vectoramp.IntID(2), Text: "Machine learning notes"},
     },
 })
 ```
 
 ### Search
 
+A search query may be a bare string (text search), a `[]float64` (vector search),
+or a full `SearchRequest`. `top_k` defaults to 10. `WithSearchRerank(true)`
+expands to the full rerank object.
+
 ```go
-dataset, err := client.Datasets.Get(ctx, "dataset-id")
-resp, err := dataset.Search(ctx, "machine learning best practices", vectoramp.WithSearchTopK(10), vectoramp.WithSearchRerank(true))
+ds, err := client.Datasets.Get(ctx, "dataset-id")
+resp, err := ds.Search(ctx, "machine learning best practices",
+    vectoramp.WithSearchTopK(10), vectoramp.WithSearchRerank(true))
 
 includeMetadata := true
-resp, err = dataset.Search(ctx, vectoramp.SearchRequest{
+resp, err = ds.Search(ctx, vectoramp.SearchRequest{
     QueryText:        "machine learning best practices",
     TopK:             10,
     Filters:          map[string]string{"category": "engineering"},
@@ -196,34 +181,46 @@ resp, err = dataset.Search(ctx, vectoramp.SearchRequest{
     IncludeMetadata:  &includeMetadata,
     Rerank:           vectoramp.RerankConfig{Enabled: true}, // vectoramp / VectorAmp-Rerank-v1
 })
+
+// Hybrid search: pass a sparse query and an alpha blend weight.
+alpha := 0.5
+resp, err = ds.Search(ctx, vectoramp.SearchRequest{
+    QueryText:   "vector database",
+    Hybrid:      true,
+    SparseQuery: "vector database",
+    Alpha:       &alpha,
+})
 ```
 
-String searches default to `top_k: 10` when you omit `WithSearchTopK`. Raw vector search is also supported by passing `[]float64{...}` or a full `SearchRequest`.
+### Source documents
+
+Datasets expose retained original source documents from ingestion or file upload.
+Listing is cursor-based: pass `NextCursor` into the next call. `DownloadDocument`
+returns the original bytes and follows redirects.
+
+```go
+ds, err := client.Datasets.Get(ctx, "dataset-id")
+docs, err := ds.ListDocuments(ctx, vectoramp.DocumentListOptions{Limit: 25, Status: "ready"})
+for _, doc := range docs.Documents {
+    if doc.DownloadAvailable {
+        raw, err := ds.DownloadDocument(ctx, doc.ID)
+        _, _ = raw, err
+    }
+}
+if docs.NextCursor != "" {
+    next, err := ds.ListDocuments(ctx, vectoramp.DocumentListOptions{Cursor: docs.NextCursor})
+    _, _ = next, err
+}
+```
 
 ## Ingestion
 
-### Sources and jobs
-
-```go
-sources, err := client.Ingestion.ListSources(ctx, 50, 0)
-source, err := client.Ingestion.GetSource(ctx, sources.Sources[0].ID)
-
-dataset, err := client.Datasets.Get(ctx, "dataset-id")
-job, err := dataset.IngestSource(ctx, source.ID)
-
-// Equivalent service-style call remains supported.
-job, err = client.Ingestion.StartJob(ctx, vectoramp.StartIngestionRequest{
-    SourceID:  source.ID,
-    DatasetID: dataset.ID,
-})
-
-jobs, err := client.Ingestion.ListJobs(ctx, "dataset-id", 50, 0)
-job, err = client.Ingestion.GetJob(ctx, job.JobID)
-```
-
 ### Typed source builders
 
-Typed builders make source creation safer while still preserving `CreateSourceRequest` for fully manual calls. Supported public `source_type` values include `s3`, `web`, `gcs`, `gdrive`, `file_upload`, and `jira`; use `GenericSource` as an escape hatch for custom or future source types.
+Typed builders make source creation safer while preserving `CreateSourceRequest`
+for fully manual calls. Supported public `source_type` values: `web`, `s3`, `gcs`,
+`gdrive`, `jira`, `confluence`, `file_upload`. Use `GenericSource` for custom or
+future types.
 
 ```go
 web, err := client.Sources.CreateWeb(ctx, vectoramp.WebSource{
@@ -234,18 +231,18 @@ web, err := client.Sources.CreateWeb(ctx, vectoramp.WebSource{
 s3, err := client.Sources.CreateS3(ctx, vectoramp.S3Source{
     Bucket:          "my-bucket", // name defaults to s3-my-bucket
     Prefix:          "docs/",
-    Region:          "us-east-1",
     AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
     SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
 })
 
-gdrive, err := client.Sources.CreateGoogleDrive(ctx, vectoramp.GoogleDriveSource{
-    AuthMode:           "service_account",
-    ServiceAccountJSON: os.Getenv("GOOGLE_SERVICE_ACCOUNT_JSON"),
-    FolderIDs:          []string{"folder-id"},
+confluence, err := client.Sources.CreateConfluence(ctx, vectoramp.ConfluenceSource{
+    CloudID:  "your-cloud-id",
+    Username: "user@example.com",
+    APIToken: os.Getenv("ATLASSIAN_API_TOKEN"),
+    Spaces:   []string{"ENG", "DOCS"},
 })
 
-upload, err := client.Sources.CreateFileUpload(ctx, vectoramp.FileUploadSource{})
+jira, err := client.Sources.CreateJira(ctx, vectoramp.JiraSource{CloudID: "your-cloud-id"})
 
 custom, err := client.Sources.Create(ctx, vectoramp.GenericSource{
     SourceType: "custom",
@@ -253,57 +250,69 @@ custom, err := client.Sources.Create(ctx, vectoramp.GenericSource{
     Config:     map[string]interface{}{"type": "custom"},
 })
 
-_, _, _, _ = web, s3, gdrive, upload
-_ = custom
+_, _, _, _, _ = web, s3, confluence, jira, custom
 ```
 
-`Dataset.IngestSource` accepts either an existing source ID/`Source` or a typed builder. Passing a builder creates the source first, then starts the ingestion job.
+### Ingest a source into a dataset
+
+`IngestSource` accepts an existing source ID/`Source` **or** a typed builder.
+Passing a builder creates the source first, then starts the ingestion job.
 
 ```go
-job, err := dataset.IngestSource(ctx, vectoramp.WebSource{
-    StartURLs: []string{"https://example.com/releases"},
-}, "default_pipeline")
+ds, err := client.Datasets.Get(ctx, "dataset-id")
+
+// One-liner: build + create + start job.
+job, err := ds.IngestSource(ctx, vectoramp.WebSource{StartURLs: []string{"https://docs.example.com"}})
 
 // Existing source IDs still work.
-job, err = dataset.IngestSource(ctx, "source-id")
+job, err = ds.IngestSource(ctx, "source-id")
+
+// Service-style:
+job, err = client.Ingestion.StartJob(ctx, vectoramp.StartIngestionRequest{
+    SourceID: "source-id", DatasetID: ds.ID,
+})
+
+jobs, err := client.Ingestion.ListJobs(ctx, ds.ID, 50, 0)
+job, err = client.Ingestion.GetJob(ctx, job.JobID)
 ```
 
 ### Filesystem upload ingestion
 
-For local files, the SDK creates a `file_upload` source, initializes presigned uploads, uploads file bytes, and completes the upload.
+For local files, the SDK creates a `file_upload` source, initializes presigned
+uploads, uploads file bytes, and completes the upload — all behind one call.
 
 ```go
-dataset, err := client.Datasets.Get(ctx, "dataset-id")
-job, err := dataset.IngestFiles(ctx, []string{"./docs/guide.pdf"}, nil)
+ds, err := client.Datasets.Get(ctx, "dataset-id")
+job, err := ds.IngestFiles(ctx, []string{"./docs/guide.pdf"}, nil)
 
 // Override optional details only when you need them.
-job, err = dataset.IngestFiles(ctx, []string{"./docs/guide.pdf"}, &vectoramp.IngestFilesOptions{
+job, err = ds.IngestFiles(ctx, []string{"./docs/guide.pdf"}, &vectoramp.IngestFilesOptions{
     SourceName: "product-docs-upload",
 })
+```
 
-// Service-style remains available:
-job, err = client.Ingestion.IngestFiles(ctx, dataset.ID, []string{"./docs/guide.pdf"}, nil)
+### Schedules
+
+```go
+sch, err := client.Schedules.Create(ctx, vectoramp.CreateScheduleRequest{
+    SourceID: "source-id", DatasetID: "dataset-id", Cron: "0 0 * * *",
+})
+page, err := client.Schedules.List(ctx, 50, 0)
+_, err = client.Schedules.Trigger(ctx, sch.ID)
 ```
 
 ## Intelligence / RAG
 
-### Non-streaming
+### Ask (non-streaming)
+
+`ask` defaults to `top_k=5`, includes source citations, and uses all datasets
+when unscoped.
 
 ```go
 answer, err := client.Ask(ctx, "What are the key product features?", vectoramp.WithAllDatasets())
 
-dataset, err := client.Datasets.Get(ctx, "dataset-id")
-answer, err = dataset.Ask(ctx, "What are the key product features?", vectoramp.WithTopK(5))
-```
-
-Equivalent explicit call:
-
-```go
-answer, err := client.Intelligence.Ask(ctx, vectoramp.AskRequest{
-    Query:     "What are the key product features?",
-    DatasetID: "all",
-    TopK:      5,
-})
+ds, err := client.Datasets.Get(ctx, "dataset-id")
+answer, err = ds.Ask(ctx, "What are the key product features?", vectoramp.WithTopK(5))
 ```
 
 ### Streaming SSE
@@ -332,6 +341,18 @@ if err := stream.Err(); err != nil {
 }
 ```
 
+### Sessions
+
+```go
+session, err := client.Intelligence.CreateSession(ctx, vectoramp.SessionCreateRequest{Title: "Planning", DatasetID: "dataset-id"})
+_, err = client.Intelligence.AppendMessage(ctx, session.ID, vectoramp.SessionMessageCreateRequest{Role: "user", Content: "Summarize the docs"})
+messages, err := client.Intelligence.ListMessages(ctx, session.ID, 100)
+sessions, err := client.Intelligence.ListSessions(ctx, 50)
+```
+
+Intelligence answers return `Sources` and `Chunks`. Inline `[1]` citations refer
+to `Sources[0]`; `PreviewRef` is an opaque preview token, not a storage key.
+
 ## Errors
 
 Non-2xx responses return `*vectoramp.APIError`.
@@ -344,22 +365,73 @@ if err != nil {
 }
 ```
 
+## Method reference
+
+All methods take `context.Context` as the first argument (omitted below for
+brevity). Both the service-style (`client.Datasets.Search(id, ...)`) and
+object-style (`ds.Search(...)`) forms work where listed.
+
+### `client.Datasets` / `*Dataset`
+
+| Method | Required | Optional | Returns |
+|---|---|---|---|
+| `List(limit, offset int)` | — | limit, offset (0 omits) | `*DatasetList` |
+| `Get(id string)` | id | — | `*Dataset` |
+| `Create(req CreateDatasetRequest)` | `req.Name` | `Dim` (inferred), `Metric` (cosine), `Hybrid`, `Embedding`, `Tuning`, `Metadata` | `*Dataset` |
+| `Delete(id)` / `ds.Delete()` | id | — | `error` |
+| `ListDocuments(id, opts)` / `ds.ListDocuments(opts)` | id | `opts.Limit`, `opts.Cursor`, `opts.Status` | `*DatasetDocumentList` |
+| `DownloadDocument(id, docID)` / `ds.DownloadDocument(docID)` | id, docID | — | `[]byte` |
+| `Search(id, input, opts...)` / `ds.Search(input, opts...)` | id, input (string, `[]float64`, or `SearchRequest`) | `WithSearchTopK` (10), `WithSearchMetadata`, `WithSearchDocuments`, `WithSearchRerank`, `WithSearchRerankConfig` | `*SearchResponse` |
+| `Insert(id, vectors)` / `ds.Insert(vectors)` | id, vectors | — | `*InsertVectorsResponse` |
+| `Embed(id, req)` / `ds.Embed(req)`* | id, `req.Text` or `req.Texts` | `EmbeddingProvider`, `EmbeddingModel` | `*EmbedResponse` |
+| `AddTexts(id, input, opts...)` / `ds.AddTexts(input, opts...)` | id, input (string, `[]string`, `[]TextDocument`, or `AddTextsRequest`) | `WithEmbedding(provider, model)` | `*AddTextsResponse` |
+| `IngestSource(id, source, pipelineID...)` / `ds.IngestSource(source, pipelineID...)` | id, source (ID, `Source`, or builder) | pipelineID | `*Job` |
+| `IngestFiles(id, paths, opts)` / `ds.IngestFiles(paths, opts)` | id, paths | `opts.SourceName`, `opts.Description`, `opts.PipelineID`, `opts.Metadata` | `*Job` |
+| `Ask(id, input, opts...)` / `ds.Ask(input, opts...)` | id, input (string or `AskRequest`) | `WithTopK` (5), `WithSources`, `WithHistory` | `*AskResponse` |
+
+\* `Embed` is available on `*Dataset` via `ds.Embed(...)` as well as `client.Datasets.Embed(id, ...)`.
+
+Vector id helpers: `StringID(s)`, `IntID(n)`, `NewVectorID(any)`. Embedding
+helpers: `VectorAmpEmbedding()`, `OpenAIEmbedding("small"|"large")`.
+
+### `client.Sources` / `client.Ingestion`
+
+| Method | Required | Returns |
+|---|---|---|
+| `CreateSource(source)` / `Create(source)` | source (builder or `CreateSourceRequest`) | `*Source` |
+| `CreateWeb`/`CreateS3`/`CreateGCS`/`CreateGoogleDrive`/`CreateJira`/`CreateConfluence`/`CreateFileUpload(source)` | typed builder | `*Source` |
+| `ListSources(limit, offset)` | — | `*SourceList` |
+| `GetSource(id)` | id | `*Source` |
+| `StartJob(req)` | `req.SourceID`, `req.DatasetID` | `*Job` |
+| `ListJobs(datasetID, limit, offset)` | — (datasetID optional filter) | `*JobList` |
+| `GetJob(id)` | id | `*Job` |
+| `RetryJob(id)` | id | `*Job` |
+| `IngestFiles(datasetID, paths, opts)` | datasetID, paths | `*Job` |
+
+Source builders: `WebSource`, `S3Source`, `GCSSource`, `GoogleDriveSource`,
+`JiraSource`, `ConfluenceSource`, `FileUploadSource`, `GenericSource`.
+
+### `client.Schedules`
+
+`List(limit, offset)`, `Get(id)`, `Create(req)`, `Update(id, req)`, `Delete(id)`,
+`Trigger(id)`.
+
+### `client.Intelligence`
+
+`Ask(input, opts...)`, `Stream(req)`, `CreateSession(req)`, `ListSessions(limit)`,
+`GetSession(id)`, `AppendMessage(sessionID, req)`, `ListMessages(sessionID, limit)`.
+`client.Ask(...)` is a shortcut for `client.Intelligence.Ask(...)`.
+
 ## Development
 
 ```bash
+go build ./...
 go test ./...
 go test -race -coverprofile=coverage.out ./...
 go tool cover -func=coverage.out
 ```
 
-GitLab CI runs the race-enabled test job and publishes `coverage.out` as an artifact.
+## License
 
-### Intelligence sessions
-
-```go
-session, err := client.Intelligence.CreateSession(ctx, vectoramp.SessionCreateRequest{Title: "Planning", DatasetID: dataset.ID})
-_, err = client.Intelligence.AppendMessage(ctx, session.ID, vectoramp.SessionMessageCreateRequest{Role: "user", Content: "Summarize the docs"})
-messages, err := client.Intelligence.ListMessages(ctx, session.ID, 100)
-```
-
-Intelligence answers return `Sources` and `Chunks`. Inline `[1]` citations refer to `Sources[0]`; `PreviewRef` is an opaque preview token, not a storage key.
+Apache License 2.0. See [LICENSE](./LICENSE) and [NOTICE](./NOTICE). Go has no
+package manifest license field; the license is declared by these repo-root files.

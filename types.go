@@ -1,6 +1,9 @@
 package vectoramp
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Metadata is arbitrary user or API metadata attached to resources and results.
 type Metadata map[string]interface{}
@@ -70,6 +73,25 @@ type EmbeddingConfig struct {
 	Model    string `json:"model,omitempty"`
 }
 
+// VectorAmpEmbedding returns the default VectorAmp embedding config (the 4B model,
+// dim 2560). Pass it as CreateDatasetRequest.Embedding to be explicit.
+func VectorAmpEmbedding() *EmbeddingConfig {
+	return &EmbeddingConfig{Provider: DefaultEmbeddingProvider, Model: DefaultEmbeddingModel}
+}
+
+// OpenAIEmbedding returns an OpenAI embedding config for dataset creation.
+//
+// size is "small" (text-embedding-3-small, dim 1536) or "large"
+// (text-embedding-3-large, dim 3072). Any other value selects the small model.
+// Pass the result as CreateDatasetRequest.Embedding; Dim is inferred from it.
+func OpenAIEmbedding(size string) *EmbeddingConfig {
+	model := "text-embedding-3-small"
+	if size == "large" {
+		model = "text-embedding-3-large"
+	}
+	return &EmbeddingConfig{Provider: "openai", Model: model}
+}
+
 // DatasetList is a paginated collection of datasets.
 type DatasetList struct {
 	Datasets []Dataset `json:"datasets"`
@@ -89,18 +111,84 @@ func (p *DatasetList) bind(s *DatasetService) {
 	}
 }
 
+// Default embedding provider and model used when CreateDatasetRequest omits one.
+const (
+	// DefaultEmbeddingProvider is the provider used when none is specified.
+	DefaultEmbeddingProvider = "vectoramp"
+	// DefaultEmbeddingModel is the model used when none is specified.
+	DefaultEmbeddingModel = "VectorAmp-Embedding-4B"
+	// DefaultMetric is the distance metric used when none is specified.
+	DefaultMetric = "cosine"
+)
+
+// embeddingDimensions maps known provider/model pairs to their vector dimension
+// so CreateDatasetRequest can infer Dim when the caller omits it.
+var embeddingDimensions = map[string]map[string]int{
+	"vectoramp": {
+		"VectorAmp-Embedding-4B": 2560,
+	},
+	"openai": {
+		"text-embedding-3-small": 1536,
+		"text-embedding-3-large": 3072,
+	},
+}
+
+// inferDim returns the known dimension for a provider/model pair, or false.
+func inferDim(provider, model string) (int, bool) {
+	if models, ok := embeddingDimensions[provider]; ok {
+		if dim, ok := models[model]; ok {
+			return dim, true
+		}
+	}
+	return 0, false
+}
+
 // CreateDatasetRequest is the request body for creating a dataset.
 //
-// Name and Dim are required by the API. Metric, Tuning, Embedding, and Metadata
-// are optional. MarshalJSON always adds index_type="sable" because public
+// Only Name is required. When omitted, Dim is inferred from the embedding model
+// (defaulting to vectoramp/VectorAmp-Embedding-4B → 2560), Metric defaults to
+// cosine, and Embedding defaults to the VectorAmp 4B model. Set Hybrid to enable
+// a hybrid (dense + sparse) index. Custom or unknown embedding models require an
+// explicit Dim. MarshalJSON always adds index_type="sable" because public
 // dataset creation is SABLE-only.
 type CreateDatasetRequest struct {
 	Name      string                 `json:"name"`
-	Dim       int                    `json:"dim"`
+	Dim       int                    `json:"dim,omitempty"`
 	Metric    string                 `json:"metric,omitempty"`
+	Hybrid    bool                   `json:"hybrid,omitempty"`
 	Tuning    map[string]interface{} `json:"tuning,omitempty"`
 	Embedding *EmbeddingConfig       `json:"embedding,omitempty"`
 	Metadata  Metadata               `json:"metadata,omitempty"`
+}
+
+// withDefaults returns a copy of the request with SDK defaults applied: a
+// default embedding model, a default metric, and an inferred Dim when omitted.
+// It returns an error if Dim is omitted and cannot be inferred from the model.
+func (r CreateDatasetRequest) withDefaults() (CreateDatasetRequest, error) {
+	out := r
+	if out.Metric == "" {
+		out.Metric = DefaultMetric
+	}
+	if out.Embedding == nil {
+		out.Embedding = &EmbeddingConfig{Provider: DefaultEmbeddingProvider, Model: DefaultEmbeddingModel}
+	} else {
+		emb := *out.Embedding
+		if emb.Provider == "" {
+			emb.Provider = DefaultEmbeddingProvider
+		}
+		if emb.Model == "" {
+			emb.Model = DefaultEmbeddingModel
+		}
+		out.Embedding = &emb
+	}
+	if out.Dim == 0 {
+		dim, ok := inferDim(out.Embedding.Provider, out.Embedding.Model)
+		if !ok {
+			return out, fmt.Errorf("vectoramp: cannot infer dim for embedding %s/%s; set CreateDatasetRequest.Dim explicitly", out.Embedding.Provider, out.Embedding.Model)
+		}
+		out.Dim = dim
+	}
+	return out, nil
 }
 
 // MarshalJSON encodes CreateDatasetRequest with index_type="sable".
@@ -113,10 +201,28 @@ func (r CreateDatasetRequest) MarshalJSON() ([]byte, error) {
 }
 
 // Vector is one vector record to insert into a dataset.
+//
+// ID is a VectorID that preserves the caller's string or integer type on the
+// wire: integer ids serialize as JSON numbers, string ids as JSON strings.
+// Build one with StringID, IntID, or NewVectorID. A zero ID is omitted so the
+// API can assign one.
 type Vector struct {
-	ID       string    `json:"id"`
+	ID       VectorID  `json:"id"`
 	Values   []float64 `json:"values"`
 	Metadata Metadata  `json:"metadata,omitempty"`
+}
+
+// MarshalJSON serializes a Vector, omitting the id field when it is unset so the
+// API generates one, and otherwise preserving the numeric/string id type.
+func (v Vector) MarshalJSON() ([]byte, error) {
+	type alias Vector
+	if v.ID.IsZero() {
+		return json.Marshal(struct {
+			Values   []float64 `json:"values"`
+			Metadata Metadata  `json:"metadata,omitempty"`
+		}{Values: v.Values, Metadata: v.Metadata})
+	}
+	return json.Marshal(alias(v))
 }
 
 // InsertVectorsRequest is the request body for vector insertion.
@@ -131,10 +237,11 @@ type InsertVectorsResponse struct {
 
 // TextDocument is an input document for AddTexts.
 //
-// Metadata is optional. AddTexts copies Text into metadata["text"] unless that
-// key is already present.
+// ID is optional; leave it zero to have AddTexts generate a stable id. When set,
+// it preserves the string or integer id type. Metadata is optional. AddTexts
+// copies Text into metadata["text"] unless that key is already present.
 type TextDocument struct {
-	ID       string
+	ID       VectorID
 	Text     string
 	Metadata Metadata
 }

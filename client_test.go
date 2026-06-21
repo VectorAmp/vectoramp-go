@@ -146,7 +146,7 @@ func TestDatasetListCreateGetDeleteSearchInsertAndAddTexts(t *testing.T) {
 	if job, err := got.IngestSource(context.Background(), "src1", "pipe1"); err != nil || job.JobID != "job1" {
 		t.Fatalf("resource ingest source: %#v %v", job, err)
 	}
-	add, err := created.AddTexts(context.Background(), AddTextsRequest{Texts: []TextDocument{{ID: "a", Text: "one"}, {ID: "b", Text: "two", Metadata: Metadata{"kind": "note"}}}})
+	add, err := created.AddTexts(context.Background(), AddTextsRequest{Texts: []TextDocument{{ID: StringID("a"), Text: "one"}, {ID: StringID("b"), Text: "two", Metadata: Metadata{"kind": "note"}}}})
 	if err != nil || add.Inserted != 2 || add.Embeddings != 2 {
 		t.Fatalf("add texts: %#v %v", add, err)
 	}
@@ -604,6 +604,9 @@ func TestIntelligenceSessionsAndMessages(t *testing.T) {
 				t.Fatalf("bad messages query: %s", r.URL.RawQuery)
 			}
 			w.Write([]byte(`{"messages":[{"id":"msg1","role":"user","content":"hello"}]}`))
+		case r.Method == "DELETE" && r.URL.Path == "/intelligence/sessions/sess%2F1":
+			seen["delete"] = true
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
 		}
@@ -625,9 +628,390 @@ func TestIntelligenceSessionsAndMessages(t *testing.T) {
 	if messages, err := c.Intelligence.ListMessages(ctx, "sess/1", 50); err != nil || len(messages.Messages) != 1 {
 		t.Fatalf("list messages: %#v %v", messages, err)
 	}
-	for _, k := range []string{"create", "list", "get", "append", "messages"} {
+	if err := c.Intelligence.DeleteSession(ctx, "sess/1"); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	for _, k := range []string{"create", "list", "get", "append", "messages", "delete"} {
 		if !seen[k] {
 			t.Fatalf("did not see %s", k)
+		}
+	}
+}
+
+// TestMinimalDatasetCreateAppliesDefaults verifies that creating a dataset with
+// only a name infers dim 2560, defaults the embedding to the VectorAmp 4B model,
+// defaults the metric to cosine, and forces index_type=sable.
+func TestMinimalDatasetCreateAppliesDefaults(t *testing.T) {
+	var body map[string]interface{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/datasets" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		body = decodeBody(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":"ds1","name":"docs","dim":2560,"metric":"cosine","index_type":"sable"}`))
+	}))
+
+	ds, err := c.Datasets.Create(context.Background(), CreateDatasetRequest{Name: "docs"})
+	if err != nil || ds.ID != "ds1" {
+		t.Fatalf("minimal create: %#v %v", ds, err)
+	}
+	if body["name"] != "docs" {
+		t.Fatalf("name not sent: %#v", body)
+	}
+	if body["dim"].(float64) != 2560 {
+		t.Fatalf("dim not inferred to 2560: %#v", body)
+	}
+	if body["metric"] != "cosine" {
+		t.Fatalf("metric not defaulted to cosine: %#v", body)
+	}
+	if body["index_type"] != "sable" {
+		t.Fatalf("index_type not forced to sable: %#v", body)
+	}
+	emb, ok := body["embedding"].(map[string]interface{})
+	if !ok || emb["provider"] != "vectoramp" || emb["model"] != "VectorAmp-Embedding-4B" {
+		t.Fatalf("embedding not defaulted to vectoramp 4B: %#v", body)
+	}
+	if _, sent := body["hybrid"]; sent {
+		t.Fatalf("hybrid should be omitted when false: %#v", body)
+	}
+}
+
+// TestDatasetCreateOpenAIEmbeddingInfersDim verifies that an OpenAI embedding
+// helper drives dim inference without an explicit Dim.
+func TestDatasetCreateOpenAIEmbeddingInfersDim(t *testing.T) {
+	var body map[string]interface{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = decodeBody(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"ds1","name":"docs","dim":3072,"index_type":"sable"}`))
+	}))
+
+	if _, err := c.Datasets.Create(context.Background(), CreateDatasetRequest{Name: "docs", Embedding: OpenAIEmbedding("large")}); err != nil {
+		t.Fatalf("create with openai embedding: %v", err)
+	}
+	if body["dim"].(float64) != 3072 {
+		t.Fatalf("dim not inferred for openai large: %#v", body)
+	}
+	emb := body["embedding"].(map[string]interface{})
+	if emb["provider"] != "openai" || emb["model"] != "text-embedding-3-large" {
+		t.Fatalf("openai embedding not sent: %#v", body)
+	}
+}
+
+// TestDatasetCreateUnknownModelRequiresDim verifies that an unknown embedding
+// model without an explicit Dim is rejected locally before any request is sent.
+func TestDatasetCreateUnknownModelRequiresDim(t *testing.T) {
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("request should not be sent for unknown model: %s %s", r.Method, r.URL.Path)
+	}))
+	_, err := c.Datasets.Create(context.Background(), CreateDatasetRequest{
+		Name:      "docs",
+		Embedding: &EmbeddingConfig{Provider: "acme", Model: "mystery-embed"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot infer dim") {
+		t.Fatalf("expected dim inference error, got %v", err)
+	}
+
+	// An explicit Dim makes a custom model work.
+	var body map[string]interface{}
+	c = testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = decodeBody(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"ds1","index_type":"sable"}`))
+	}))
+	if _, err := c.Datasets.Create(context.Background(), CreateDatasetRequest{
+		Name:      "docs",
+		Dim:       512,
+		Embedding: &EmbeddingConfig{Provider: "acme", Model: "mystery-embed"},
+	}); err != nil {
+		t.Fatalf("custom model with explicit dim: %v", err)
+	}
+	if body["dim"].(float64) != 512 {
+		t.Fatalf("explicit dim not honored: %#v", body)
+	}
+}
+
+// TestHybridDatasetCreate verifies that the Hybrid option maps to hybrid:true.
+func TestHybridDatasetCreate(t *testing.T) {
+	var body map[string]interface{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/datasets" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		body = decodeBody(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"ds1","name":"docs","index_type":"sable"}`))
+	}))
+
+	if _, err := c.Datasets.Create(context.Background(), CreateDatasetRequest{Name: "docs", Hybrid: true}); err != nil {
+		t.Fatalf("hybrid create: %v", err)
+	}
+	if hybrid, ok := body["hybrid"].(bool); !ok || !hybrid {
+		t.Fatalf("hybrid:true not sent: %#v", body)
+	}
+	if body["index_type"] != "sable" {
+		t.Fatalf("index_type not forced to sable on hybrid create: %#v", body)
+	}
+}
+
+// TestNumericVectorIDsPreserved verifies that integer vector ids serialize as
+// JSON numbers (not quoted strings) so the API does not rewrite them, while
+// string ids stay strings. This exercises the /datasets/{id}/insert endpoint.
+func TestNumericVectorIDsPreserved(t *testing.T) {
+	var body map[string]interface{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/datasets/ds1/insert" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		// Decode the raw JSON so we can inspect the on-the-wire id types.
+		body = decodeBody(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"inserted":3}`))
+	}))
+
+	ds := &Dataset{ID: "ds1", client: c}
+	_, err := ds.Insert(context.Background(), []Vector{
+		{ID: IntID(42), Values: []float64{0.1, 0.2}},
+		{ID: StringID("doc-7"), Values: []float64{0.3, 0.4}},
+		{Values: []float64{0.5, 0.6}}, // no id -> omitted, API assigns one
+	})
+	if err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	vectors := body["vectors"].([]interface{})
+	if len(vectors) != 3 {
+		t.Fatalf("expected 3 vectors: %#v", vectors)
+	}
+	first := vectors[0].(map[string]interface{})
+	// JSON numbers decode to float64; a quoted string would decode to string.
+	numID, ok := first["id"].(float64)
+	if !ok || numID != 42 {
+		t.Fatalf("integer id was not serialized as a JSON number: %#v", first["id"])
+	}
+	second := vectors[1].(map[string]interface{})
+	strID, ok := second["id"].(string)
+	if !ok || strID != "doc-7" {
+		t.Fatalf("string id was not serialized as a JSON string: %#v", second["id"])
+	}
+	third := vectors[2].(map[string]interface{})
+	if _, present := third["id"]; present {
+		t.Fatalf("unset id should be omitted so the API assigns one: %#v", third)
+	}
+}
+
+// TestNumericVectorIDRoundTrip verifies that a numeric id round-trips through
+// marshal/unmarshal without becoming a string.
+func TestNumericVectorIDRoundTrip(t *testing.T) {
+	v := Vector{ID: IntID(987654321), Values: []float64{1}}
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"id":987654321`) {
+		t.Fatalf("expected unquoted numeric id, got %s", data)
+	}
+	var got Vector
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.ID.String() != "987654321" {
+		t.Fatalf("round-trip id string = %q", got.ID.String())
+	}
+	if iv, ok := got.ID.Value().(int64); !ok || iv != 987654321 {
+		t.Fatalf("round-trip id lost its numeric type: %#v", got.ID.Value())
+	}
+}
+
+// TestAddTextsNumericIDsPreserved verifies that AddTexts preserves numeric
+// document ids through the embed+insert flow.
+func TestAddTextsNumericIDsPreserved(t *testing.T) {
+	var insertBody map[string]interface{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/datasets/ds1/embed":
+			w.Write([]byte(`{"embeddings":[[0.1],[0.2]]}`))
+		case "/datasets/ds1/insert":
+			insertBody = decodeBody(t, r)
+			w.Write([]byte(`{"inserted":2}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	ds := &Dataset{ID: "ds1", client: c}
+	_, err := ds.AddTexts(context.Background(), AddTextsRequest{Texts: []TextDocument{
+		{ID: IntID(100), Text: "one"},
+		{Text: "two"}, // generated id
+	}})
+	if err != nil {
+		t.Fatalf("add texts: %v", err)
+	}
+	vectors := insertBody["vectors"].([]interface{})
+	first := vectors[0].(map[string]interface{})
+	if numID, ok := first["id"].(float64); !ok || numID != 100 {
+		t.Fatalf("numeric add-texts id not preserved: %#v", first["id"])
+	}
+	second := vectors[1].(map[string]interface{})
+	if second["id"] != "text-2" {
+		t.Fatalf("generated id should be text-2: %#v", second["id"])
+	}
+}
+
+// TestConfluenceSourceHelper verifies the Confluence source builder and the
+// CreateConfluence convenience method produce the correct source_type and config.
+func TestConfluenceSourceHelper(t *testing.T) {
+	var body map[string]interface{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/ingestion/sources" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		body = decodeBody(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"id":"src1","source_type":"confluence"}`))
+	}))
+
+	src, err := c.Sources.CreateConfluence(context.Background(), ConfluenceSource{
+		CloudID:  "cloud-123",
+		Username: "user@example.com",
+		APIToken: "token",
+		Spaces:   []string{"ENG", "DOCS"},
+	})
+	if err != nil || src.ID != "src1" {
+		t.Fatalf("create confluence: %#v %v", src, err)
+	}
+	if body["source_type"] != "confluence" {
+		t.Fatalf("source_type not confluence: %#v", body)
+	}
+	if body["name"] != "confluence-cloud-123" {
+		t.Fatalf("default confluence name not derived from cloud id: %#v", body["name"])
+	}
+	config := body["config"].(map[string]interface{})
+	if config["type"] != "confluence" || config["cloud_id"] != "cloud-123" {
+		t.Fatalf("bad confluence config: %#v", config)
+	}
+	if config["auth_mode"] != "basic" || config["sync_mode"] != "incremental" {
+		t.Fatalf("confluence defaults missing: %#v", config)
+	}
+	if config["username"] != "user@example.com" || config["api_token"] != "token" {
+		t.Fatalf("confluence basic-auth fields missing: %#v", config)
+	}
+	spaces, ok := config["spaces"].([]interface{})
+	if !ok || len(spaces) != 2 || spaces[0] != "ENG" {
+		t.Fatalf("confluence spaces not sent: %#v", config["spaces"])
+	}
+	if _, present := config["include_attachments"]; present {
+		t.Fatalf("include_attachments should be omitted by default: %#v", config)
+	}
+}
+
+// TestConfluenceIngestSource verifies a ConfluenceSource builder can be passed
+// straight into IngestSource, which creates the source then starts a job.
+func TestConfluenceIngestSource(t *testing.T) {
+	steps := map[string]bool{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "POST" && r.URL.Path == "/ingestion/sources":
+			steps["create"] = true
+			body := decodeBody(t, r)
+			if body["source_type"] != "confluence" {
+				t.Fatalf("bad confluence source: %#v", body)
+			}
+			w.Write([]byte(`{"id":"src1","source_type":"confluence"}`))
+		case r.Method == "POST" && r.URL.Path == "/ingestion/jobs":
+			steps["job"] = true
+			body := decodeBody(t, r)
+			if body["source_id"] != "src1" || body["dataset_id"] != "ds1" {
+				t.Fatalf("bad confluence job: %#v", body)
+			}
+			w.Write([]byte(`{"job_id":"job1","status":"pending"}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+
+	ds := &Dataset{ID: "ds1", client: c}
+	job, err := ds.IngestSource(context.Background(), ConfluenceSource{BaseURL: "https://co.atlassian.net"})
+	if err != nil || job.JobID != "job1" {
+		t.Fatalf("confluence ingest source: %#v %v", job, err)
+	}
+	if !steps["create"] || !steps["job"] {
+		t.Fatalf("confluence ingest did not create source and start job: %#v", steps)
+	}
+}
+
+// TestInsertEndpointPath asserts the SDK inserts at /datasets/{id}/insert
+// (the verified endpoint) rather than a /vectors path.
+func TestInsertEndpointPath(t *testing.T) {
+	hit := false
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/datasets/ds1/vectors" {
+			t.Fatalf("SDK used the deprecated /vectors insert path")
+		}
+		if r.Method == "POST" && r.URL.Path == "/datasets/ds1/insert" {
+			hit = true
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"inserted":1}`))
+			return
+		}
+		t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+	}))
+	if _, err := c.Datasets.Insert(context.Background(), "ds1", []Vector{{ID: StringID("a"), Values: []float64{0.1}}}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if !hit {
+		t.Fatal("insert endpoint /datasets/ds1/insert was not called")
+	}
+}
+
+// TestEndpointPathsAreUnprefixed verifies that core methods route to unprefixed
+// paths (no /v1 or /api/v1) as required by the verified API surface.
+func TestEndpointPathsAreUnprefixed(t *testing.T) {
+	paths := map[string]bool{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/") || strings.HasPrefix(r.URL.Path, "/api/") {
+			t.Fatalf("client used a prefixed path: %s", r.URL.Path)
+		}
+		paths[r.URL.Path] = true
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/datasets":
+			w.Write([]byte(`{"datasets":[],"total":0}`))
+		case r.URL.Path == "/datasets/ds1/search":
+			w.Write([]byte(`{"results":[]}`))
+		case r.URL.Path == "/intelligence/query":
+			w.Write([]byte(`{"answer":"ok"}`))
+		case r.URL.Path == "/ingestion/sources":
+			w.Write([]byte(`{"sources":[],"total":0}`))
+		case r.URL.Path == "/ingestion/schedules":
+			w.Write([]byte(`{"schedules":[],"total":0}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+
+	ctx := context.Background()
+	if _, err := c.Datasets.List(ctx, 0, 0); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if _, err := c.Datasets.Search(ctx, "ds1", "hi"); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if _, err := c.Ask(ctx, "hi", WithAllDatasets()); err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	if _, err := c.Ingestion.ListSources(ctx, 0, 0); err != nil {
+		t.Fatalf("list sources: %v", err)
+	}
+	if _, err := c.Schedules.List(ctx, 0, 0); err != nil {
+		t.Fatalf("list schedules: %v", err)
+	}
+	for _, p := range []string{"/datasets", "/datasets/ds1/search", "/intelligence/query", "/ingestion/sources", "/ingestion/schedules"} {
+		if !paths[p] {
+			t.Fatalf("expected unprefixed path %s to be hit", p)
 		}
 	}
 }
