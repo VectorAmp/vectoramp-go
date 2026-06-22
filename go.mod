@@ -1,3 +1,3 @@
-module gitlab.com/VectorAmp/SDK/Go
+module github.com/vectoramp/vectoramp-go
 
 go 1.18

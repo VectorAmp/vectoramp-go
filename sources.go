@@ -18,6 +18,8 @@ const (
 	SourceTypeGDrive = "gdrive"
 	// SourceTypeJira identifies Jira ingestion sources.
 	SourceTypeJira = "jira"
+	// SourceTypeConfluence identifies Confluence ingestion sources.
+	SourceTypeConfluence = "confluence"
 	// SourceTypeFileUpload identifies presigned file-upload sources.
 	SourceTypeFileUpload = "file_upload"
 )
@@ -289,6 +291,61 @@ func (s JiraSource) ToCreateSourceRequest() CreateSourceRequest {
 
 // CreateJira creates a Jira ingestion source and returns it.
 func (s *IngestionService) CreateJira(ctx context.Context, source JiraSource) (*Source, error) {
+	return s.CreateSource(ctx, source)
+}
+
+// ConfluenceSource describes a Confluence ingestion source.
+//
+// Provide either CloudID (Atlassian OAuth cloud/site id) or BaseURL (for example
+// https://company.atlassian.net). AuthMode defaults to basic, which uses
+// Username plus APIToken; use OAuthCredentials for OAuth. Spaces selects
+// specific space keys (empty means all accessible). IncludeAttachments defaults
+// to false. SyncMode defaults to incremental. ConfigExtra is merged last.
+type ConfluenceSource struct {
+	Name               string
+	CloudID            string
+	BaseURL            string
+	AuthMode           string
+	Username           string
+	APIToken           string
+	OAuthCredentials   map[string]interface{}
+	Spaces             []string
+	IncludeAttachments *bool
+	SyncMode           string
+	Description        string
+	Metadata           Metadata
+	ConfigExtra        map[string]interface{}
+}
+
+// ToCreateSourceRequest converts ConfluenceSource into a create-source request.
+func (s ConfluenceSource) ToCreateSourceRequest() CreateSourceRequest {
+	config := map[string]interface{}{
+		"type":      SourceTypeConfluence,
+		"auth_mode": defaultString(s.AuthMode, "basic"),
+		"sync_mode": defaultString(s.SyncMode, "incremental"),
+	}
+	setNonEmpty(config, "cloud_id", s.CloudID)
+	setNonEmpty(config, "base_url", s.BaseURL)
+	setNonEmpty(config, "username", s.Username)
+	setNonEmpty(config, "api_token", s.APIToken)
+	if s.OAuthCredentials != nil {
+		config["oauth_credentials"] = cloneMap(s.OAuthCredentials)
+	}
+	setStringSlice(config, "spaces", s.Spaces)
+	setBoolPtr(config, "include_attachments", s.IncludeAttachments)
+	mergeExtra(config, s.ConfigExtra)
+	hint := s.CloudID
+	if hint == "" && len(s.Spaces) > 0 && s.Spaces[0] != "" {
+		hint = s.Spaces[0]
+	}
+	if hint == "" {
+		hint = s.BaseURL
+	}
+	return CreateSourceRequest{SourceType: SourceTypeConfluence, Name: defaultString(s.Name, defaultSourceName(SourceTypeConfluence, hint)), Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
+}
+
+// CreateConfluence creates a Confluence ingestion source and returns it.
+func (s *IngestionService) CreateConfluence(ctx context.Context, source ConfluenceSource) (*Source, error) {
 	return s.CreateSource(ctx, source)
 }
 

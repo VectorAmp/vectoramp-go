@@ -165,6 +165,11 @@ func (s *IntelligenceService) GetSession(ctx context.Context, id string) (*Intel
 	return &out, err
 }
 
+// DeleteSession deletes a persistent Intelligence session.
+func (s *IntelligenceService) DeleteSession(ctx context.Context, id string) error {
+	return s.client.do(ctx, "DELETE", "/intelligence/sessions/"+urlPathEscape(id), nil, nil, nil)
+}
+
 // AppendMessage appends a message to a persistent Intelligence session.
 func (s *IntelligenceService) AppendMessage(ctx context.Context, sessionID string, req SessionMessageCreateRequest) (*SessionMessage, error) {
 	var out SessionMessage
