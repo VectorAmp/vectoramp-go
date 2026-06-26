@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -43,6 +44,109 @@ func (s *IngestionService) CreateSource(ctx context.Context, source interface{})
 	}
 	var out Source
 	err := s.client.do(ctx, "POST", "/ingestion/sources", nil, req, &out)
+	return &out, err
+}
+
+// DeleteSourceOption customizes a DeleteSource request.
+type DeleteSourceOption func(*deleteSourceOptions)
+
+type deleteSourceOptions struct {
+	force bool
+}
+
+// WithForce forces deletion of a source even when it is still referenced by
+// datasets, jobs, or schedules, sending force=true. Without it the API rejects
+// deletes of in-use sources.
+func WithForce() DeleteSourceOption {
+	return func(o *deleteSourceOptions) { o.force = true }
+}
+
+// DeleteSource deletes an ingestion source by ID.
+//
+// By default the API refuses to delete a source that is still referenced; pass
+// WithForce to delete it regardless of its references.
+func (s *IngestionService) DeleteSource(ctx context.Context, sourceID string, opts ...DeleteSourceOption) error {
+	var o deleteSourceOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	var q url.Values
+	if o.force {
+		q = url.Values{}
+		q.Set("force", "true")
+	}
+	return s.client.do(ctx, "DELETE", fmt.Sprintf("/ingestion/sources/%s", sourceID), q, nil, nil)
+}
+
+// ListUnusedSources returns ingestion sources that are not referenced by any
+// dataset, job, or schedule, using optional limit and offset pagination.
+//
+// Pass zero for limit or offset to omit that query parameter.
+func (s *IngestionService) ListUnusedSources(ctx context.Context, limit, offset int) (*SourceList, error) {
+	var out SourceList
+	err := s.client.do(ctx, "GET", "/ingestion/sources/unused", paginationQuery(limit, offset), nil, &out)
+	return &out, err
+}
+
+// DeletedSource identifies one source removed by a cleanup operation.
+type DeletedSource struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+	Type string `json:"type,omitempty"`
+}
+
+// CleanupUnusedSourcesResponse reports the sources removed by CleanupUnusedSources.
+type CleanupUnusedSourcesResponse struct {
+	Deleted []DeletedSource `json:"deleted"`
+	Count   int             `json:"count"`
+}
+
+// CleanupUnusedSources deletes every unused ingestion source and reports which
+// source IDs were removed.
+func (s *IngestionService) CleanupUnusedSources(ctx context.Context) (*CleanupUnusedSourcesResponse, error) {
+	var out CleanupUnusedSourcesResponse
+	err := s.client.do(ctx, "POST", "/ingestion/sources/cleanup", nil, nil, &out)
+	return &out, err
+}
+
+// ScheduleReference identifies a schedule that references an ingestion source.
+type ScheduleReference struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
+}
+
+// SourceReferences reports what currently depends on an ingestion source: the
+// active schedules and in-flight jobs that make it "in use" (not safe to remove).
+type SourceReferences struct {
+	Schedules      []ScheduleReference `json:"schedules"`
+	ScheduleCount  int                 `json:"schedule_count"`
+	ActiveJobCount int                 `json:"active_job_count"`
+	InUse          bool                `json:"in_use"`
+}
+
+// GetSourceReferences returns the resources (datasets, jobs, schedules) that
+// reference an ingestion source.
+func (s *IngestionService) GetSourceReferences(ctx context.Context, sourceID string) (*SourceReferences, error) {
+	var out SourceReferences
+	err := s.client.do(ctx, "GET", fmt.Sprintf("/ingestion/sources/%s/references", sourceID), nil, nil, &out)
+	return &out, err
+}
+
+// ValidateSourceResponse reports the result of validating a source config.
+type ValidateSourceResponse struct {
+	Success          bool                     `json:"success"`
+	Message          string                   `json:"message,omitempty"`
+	NormalizedConfig map[string]interface{}   `json:"normalized_config,omitempty"`
+	Samples          []map[string]interface{} `json:"samples,omitempty"`
+	Warnings         []string                 `json:"warnings,omitempty"`
+}
+
+// ValidateSource validates a source type and config without creating a source,
+// returning whether the config is valid plus any errors or warnings.
+func (s *IngestionService) ValidateSource(ctx context.Context, sourceType string, config map[string]interface{}) (*ValidateSourceResponse, error) {
+	body := map[string]interface{}{"source_type": sourceType, "config": config}
+	var out ValidateSourceResponse
+	err := s.client.do(ctx, "POST", "/ingestion/sources/validate", nil, body, &out)
 	return &out, err
 }
 

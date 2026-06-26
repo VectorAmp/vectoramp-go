@@ -147,6 +147,7 @@ type GCSSource struct {
 	Prefix          string
 	ProjectID       string
 	CredentialsJSON string
+	ConnectionID    string `json:"-"`
 	FilePatterns    []string
 	MaxFileSizeMB   int
 	SyncMode        string
@@ -161,6 +162,7 @@ func (s GCSSource) ToCreateSourceRequest() CreateSourceRequest {
 	setNonEmpty(config, "prefix", s.Prefix)
 	setNonEmpty(config, "project_id", s.ProjectID)
 	setNonEmpty(config, "credentials_json", s.CredentialsJSON)
+	setNonEmpty(config, "connection_id", s.ConnectionID)
 	setStringSlice(config, "file_patterns", s.FilePatterns)
 	setNonZero(config, "max_file_size_mb", s.MaxFileSizeMB)
 	mergeExtra(config, s.ConfigExtra)
@@ -179,6 +181,7 @@ type GoogleDriveSource struct {
 	ServiceAccountJSON     string
 	DelegatedUser          string
 	OAuthCredentials       map[string]interface{}
+	ConnectionID           string `json:"-"`
 	DriveID                string
 	FolderIDs              []string
 	Query                  string
@@ -209,6 +212,7 @@ func (s GoogleDriveSource) ToCreateSourceRequest() CreateSourceRequest {
 	if s.OAuthCredentials != nil {
 		config["oauth_credentials"] = cloneMap(s.OAuthCredentials)
 	}
+	setNonEmpty(config, "connection_id", s.ConnectionID)
 	setNonEmpty(config, "drive_id", s.DriveID)
 	setStringSlice(config, "folder_ids", s.FolderIDs)
 	setNonEmpty(config, "query", s.Query)
@@ -265,6 +269,7 @@ type JiraSource struct {
 	Name            string
 	CloudID         string
 	AccessToken     string
+	ConnectionID    string `json:"-"`
 	ProjectKeys     []string
 	JQL             string
 	IncludeComments *bool
@@ -278,6 +283,7 @@ type JiraSource struct {
 func (s JiraSource) ToCreateSourceRequest() CreateSourceRequest {
 	config := map[string]interface{}{"type": SourceTypeJira, "cloud_id": s.CloudID, "include_comments": true, "sync_mode": defaultString(s.SyncMode, "incremental")}
 	setNonEmpty(config, "access_token", s.AccessToken)
+	setNonEmpty(config, "connection_id", s.ConnectionID)
 	setStringSlice(config, "project_keys", s.ProjectKeys)
 	setNonEmpty(config, "jql", s.JQL)
 	setBoolPtr(config, "include_comments", s.IncludeComments)
@@ -309,6 +315,7 @@ type ConfluenceSource struct {
 	Username           string
 	APIToken           string
 	OAuthCredentials   map[string]interface{}
+	ConnectionID       string `json:"-"`
 	Spaces             []string
 	IncludeAttachments *bool
 	SyncMode           string
@@ -331,6 +338,7 @@ func (s ConfluenceSource) ToCreateSourceRequest() CreateSourceRequest {
 	if s.OAuthCredentials != nil {
 		config["oauth_credentials"] = cloneMap(s.OAuthCredentials)
 	}
+	setNonEmpty(config, "connection_id", s.ConnectionID)
 	setStringSlice(config, "spaces", s.Spaces)
 	setBoolPtr(config, "include_attachments", s.IncludeAttachments)
 	mergeExtra(config, s.ConfigExtra)
