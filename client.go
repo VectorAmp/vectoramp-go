@@ -13,8 +13,9 @@ import (
 // Client is the root VectorAmp API client.
 //
 // Use NewClient to construct one with an API key. The Datasets, Ingestion,
-// Sources, and Intelligence fields expose the public service APIs; Sources is
-// an alias for Ingestion for source-management convenience.
+// Sources, Schedules, Intelligence, and Connections fields expose the public
+// service APIs; Sources is an alias for Ingestion for source-management
+// convenience.
 type Client struct {
 	rt           Transport
 	transport    *RESTTransport
@@ -23,6 +24,7 @@ type Client struct {
 	Sources      *IngestionService
 	Schedules    *ScheduleService
 	Intelligence *IntelligenceService
+	Connections  *ConnectionService
 }
 
 // NewClient returns a VectorAmp client configured with apiKey.
@@ -44,6 +46,7 @@ func NewClient(apiKey string, opts ...Option) *Client {
 	c.Sources = c.Ingestion
 	c.Schedules = &ScheduleService{client: c}
 	c.Intelligence = &IntelligenceService{client: c}
+	c.Connections = &ConnectionService{client: c}
 	return c
 }
 
