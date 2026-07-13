@@ -69,8 +69,9 @@ func (d *Dataset) datasetService() *DatasetService {
 
 // EmbeddingConfig selects the embedding provider and model associated with a dataset.
 type EmbeddingConfig struct {
-	Provider string `json:"provider,omitempty"`
-	Model    string `json:"model,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
+	SecretRef string `json:"secret_ref,omitempty"`
 }
 
 // VectorAmpEmbedding returns the default VectorAmp embedding config (the 4B model,
@@ -233,6 +234,20 @@ type InsertVectorsRequest struct {
 // InsertVectorsResponse reports how many vectors were inserted.
 type InsertVectorsResponse struct {
 	Inserted int `json:"inserted"`
+}
+
+// DeleteVectorsRequest is the request body for deleting vectors by id.
+//
+// WriteConcern is optional; omit it to use the API default.
+type DeleteVectorsRequest struct {
+	IDs          []VectorID `json:"ids"`
+	WriteConcern string     `json:"write_concern,omitempty"`
+}
+
+// DeleteVectorsResponse reports how many vectors were deleted.
+type DeleteVectorsResponse struct {
+	Deleted   int    `json:"deleted"`
+	DatasetID string `json:"dataset_id,omitempty"`
 }
 
 // TextDocument is an input document for AddTexts.

@@ -34,6 +34,28 @@ func WithSearchRerankConfig(config RerankConfig) SearchOption {
 	return func(r *SearchRequest) { r.Rerank = config }
 }
 
+// CreateDatasetOption customizes dataset creation.
+type CreateDatasetOption func(context.Context, *DatasetService, *CreateDatasetRequest) error
+
+// WithOpenAIAPIKeySecret stores/updates the organization OpenAI API key before
+// dataset creation and configures embedding.secret_ref to reference it.
+func WithOpenAIAPIKeySecret(apiKey string) CreateDatasetOption {
+	return func(ctx context.Context, s *DatasetService, r *CreateDatasetRequest) error {
+		if err := s.client.OrgSecrets.PutOpenAIAPIKey(ctx, apiKey); err != nil {
+			return err
+		}
+		if r.Embedding == nil {
+			r.Embedding = OpenAIEmbedding("small")
+		}
+		r.Embedding.Provider = "openai"
+		if r.Embedding.Model == "" {
+			r.Embedding.Model = "text-embedding-3-small"
+		}
+		r.Embedding.SecretRef = OpenAIAPIKeySecretRef
+		return nil
+	}
+}
+
 // AddTextsOption customizes an AddTextsRequest built from convenience inputs.
 type AddTextsOption func(*AddTextsRequest)
 
@@ -82,7 +104,12 @@ func (s *DatasetService) Get(ctx context.Context, datasetID string) (*Dataset, e
 // A minimal create needs only a name:
 //
 //	ds, err := client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{Name: "docs"})
-func (s *DatasetService) Create(ctx context.Context, req CreateDatasetRequest) (*Dataset, error) {
+func (s *DatasetService) Create(ctx context.Context, req CreateDatasetRequest, opts ...CreateDatasetOption) (*Dataset, error) {
+	for _, opt := range opts {
+		if err := opt(ctx, s, &req); err != nil {
+			return nil, err
+		}
+	}
 	prepared, err := req.withDefaults()
 	if err != nil {
 		return nil, err
@@ -138,6 +165,17 @@ func (s *DatasetService) Search(ctx context.Context, datasetID string, input int
 func (s *DatasetService) Insert(ctx context.Context, datasetID string, vectors []Vector) (*InsertVectorsResponse, error) {
 	var out InsertVectorsResponse
 	err := s.client.do(ctx, "POST", fmt.Sprintf("/datasets/%s/insert", datasetID), nil, InsertVectorsRequest{Vectors: vectors}, &out)
+	return &out, err
+}
+
+// DeleteVectors removes vectors from a dataset by id.
+func (s *DatasetService) DeleteVectors(ctx context.Context, datasetID string, ids []VectorID, writeConcern ...string) (*DeleteVectorsResponse, error) {
+	req := DeleteVectorsRequest{IDs: ids}
+	if len(writeConcern) > 0 {
+		req.WriteConcern = writeConcern[0]
+	}
+	var out DeleteVectorsResponse
+	err := s.client.do(ctx, "DELETE", fmt.Sprintf("/datasets/%s/vectors", datasetID), nil, req, &out)
 	return &out, err
 }
 
@@ -250,6 +288,11 @@ func (d *Dataset) DownloadDocument(ctx context.Context, documentID string) ([]by
 // Insert writes vectors into this dataset. See DatasetService.Insert.
 func (d *Dataset) Insert(ctx context.Context, vectors []Vector) (*InsertVectorsResponse, error) {
 	return d.datasetService().Insert(ctx, d.ID, vectors)
+}
+
+// DeleteVectors removes vectors from this dataset by id. See DatasetService.DeleteVectors.
+func (d *Dataset) DeleteVectors(ctx context.Context, ids []VectorID, writeConcern ...string) (*DeleteVectorsResponse, error) {
+	return d.datasetService().DeleteVectors(ctx, d.ID, ids, writeConcern...)
 }
 
 // AddTexts embeds and inserts texts into this dataset. See DatasetService.AddTexts.

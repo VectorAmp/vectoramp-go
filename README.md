@@ -121,6 +121,20 @@ ds, err = client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{
     Dim:       768,
     Embedding: &vectoramp.EmbeddingConfig{Provider: "acme", Model: "acme-embed-v1"},
 })
+
+// Store/update the org OpenAI key, then create a dataset that references it.
+ds, err = client.Datasets.Create(ctx,
+    vectoramp.CreateDatasetRequest{Name: "docs"},
+    vectoramp.WithOpenAIAPIKeySecret(os.Getenv("OPENAI_API_KEY")),
+)
+```
+
+You can also manage the stored OpenAI key directly:
+
+```go
+err := client.OrgSecrets.PutOpenAIAPIKey(ctx, os.Getenv("OPENAI_API_KEY"))
+err = client.OrgSecrets.UpdateOpenAIAPIKey(ctx, os.Getenv("OPENAI_API_KEY"))
+err = client.OrgSecrets.HasOpenAIAPIKey(ctx)
 ```
 
 ### List / get / delete
@@ -151,6 +165,12 @@ _, err = ds.Insert(ctx, []vectoramp.Vector{
     {ID: vectoramp.IntID(42), Values: []float64{0.4, 0.5, 0.6}}, // serialized as "id": 42
     {Values: []float64{0.7, 0.8, 0.9}},                          // no id -> API assigns one
 })
+
+// Delete vectors by id (optional write concern).
+deleted, err := ds.DeleteVectors(ctx, []vectoramp.VectorID{
+    vectoramp.StringID("doc-1"),
+    vectoramp.IntID(42),
+}, "majority")
 ```
 
 ### Add texts
