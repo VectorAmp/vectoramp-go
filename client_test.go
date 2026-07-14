@@ -1015,3 +1015,52 @@ func TestEndpointPathsAreUnprefixed(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteVectorsAndOpenAISecretDatasetCreate(t *testing.T) {
+	seen := map[string]bool{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == "DELETE" && r.URL.Path == "/datasets/ds1/vectors":
+			seen["deleteVectors"] = true
+			body := decodeBody(t, r)
+			ids := body["ids"].([]interface{})
+			if ids[0] != "doc-1" || ids[1].(float64) != 42 || body["write_concern"] != "majority" {
+				t.Fatalf("bad delete vectors body: %#v", body)
+			}
+			w.Write([]byte(`{"deleted":2,"dataset_id":"ds1"}`))
+		case r.Method == "PUT" && r.URL.Path == "/org-secrets/emb:openai:api_key":
+			seen["secret"] = true
+			body := decodeBody(t, r)
+			if body["value"] != "sk-test" {
+				t.Fatalf("bad secret body: %#v", body)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == "POST" && r.URL.Path == "/datasets":
+			seen["create"] = true
+			body := decodeBody(t, r)
+			emb := body["embedding"].(map[string]interface{})
+			if emb["provider"] != "openai" || emb["model"] != "text-embedding-3-small" || emb["secret_ref"] != OpenAIAPIKeySecretRef {
+				t.Fatalf("bad embedding body: %#v", body)
+			}
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"ds1","name":"docs","dim":1536,"metric":"cosine","index_type":"sable"}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+
+	deleted, err := c.Datasets.DeleteVectors(context.Background(), "ds1", []VectorID{StringID("doc-1"), IntID(42)}, "majority")
+	if err != nil || deleted.Deleted != 2 || deleted.DatasetID != "ds1" {
+		t.Fatalf("delete vectors: %#v %v", deleted, err)
+	}
+	created, err := c.Datasets.Create(context.Background(), CreateDatasetRequest{Name: "docs"}, WithOpenAIAPIKeySecret("sk-test"))
+	if err != nil || created.ID != "ds1" {
+		t.Fatalf("create with openai secret: %#v %v", created, err)
+	}
+	for _, k := range []string{"deleteVectors", "secret", "create"} {
+		if !seen[k] {
+			t.Fatalf("did not see %s", k)
+		}
+	}
+}
