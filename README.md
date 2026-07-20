@@ -137,6 +137,25 @@ err = client.OrgSecrets.UpdateOpenAIAPIKey(ctx, os.Getenv("OPENAI_API_KEY"))
 err = client.OrgSecrets.HasOpenAIAPIKey(ctx)
 ```
 
+Declare typed metadata at creation, then merge fields or replace the complete schema:
+
+```go
+schema := vectoramp.MetadataSchema{
+    {Name: "category", Type: vectoramp.MetadataFieldString},
+    {Name: "price", Type: vectoramp.MetadataFieldF32},
+}
+ds, err := client.Datasets.Create(ctx, vectoramp.CreateDatasetRequest{
+    Name: "products", MetadataSchema: schema,
+})
+ds, err = ds.PatchMetadataSchema(ctx, vectoramp.MetadataSchema{
+    {Name: "inventory", Type: vectoramp.MetadataFieldU32},
+})
+ds, err = ds.ReplaceMetadataSchema(ctx, schema) // empty schema removes all declared fields
+```
+
+Canonical types are `MetadataFieldString`, `MetadataFieldU32`, `MetadataFieldI32`,
+`MetadataFieldI64`, `MetadataFieldF32`, and `MetadataFieldF64`.
+
 ### List / get / delete
 
 ```go

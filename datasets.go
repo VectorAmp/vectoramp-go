@@ -122,6 +122,30 @@ func (s *DatasetService) Create(ctx context.Context, req CreateDatasetRequest, o
 	return &out, err
 }
 
+type updateMetadataSchemaRequest struct {
+	Schema MetadataSchema `json:"schema"`
+	Mode   string         `json:"mode"`
+}
+
+// PatchMetadataSchema adds or updates fields while retaining omitted fields.
+func (s *DatasetService) PatchMetadataSchema(ctx context.Context, datasetID string, schema MetadataSchema) (*Dataset, error) {
+	return s.updateMetadataSchema(ctx, datasetID, schema, "merge")
+}
+
+// ReplaceMetadataSchema replaces the complete schema, including with an empty schema.
+func (s *DatasetService) ReplaceMetadataSchema(ctx context.Context, datasetID string, schema MetadataSchema) (*Dataset, error) {
+	return s.updateMetadataSchema(ctx, datasetID, schema, "replace")
+}
+
+func (s *DatasetService) updateMetadataSchema(ctx context.Context, datasetID string, schema MetadataSchema, mode string) (*Dataset, error) {
+	var out Dataset
+	err := s.client.do(ctx, "PATCH", fmt.Sprintf("/datasets/%s/schema", datasetID), nil, updateMetadataSchemaRequest{Schema: schema, Mode: mode}, &out)
+	if err == nil {
+		out.bind(s)
+	}
+	return &out, err
+}
+
 // Delete removes a dataset by ID.
 func (s *DatasetService) Delete(ctx context.Context, datasetID string) error {
 	return s.client.do(ctx, "DELETE", fmt.Sprintf("/datasets/%s", datasetID), nil, nil, nil)
@@ -303,6 +327,16 @@ func (d *Dataset) AddTexts(ctx context.Context, input interface{}, opts ...AddTe
 // Delete removes this dataset.
 func (d *Dataset) Delete(ctx context.Context) error {
 	return d.datasetService().Delete(ctx, d.ID)
+}
+
+// PatchMetadataSchema adds or updates typed metadata fields on this dataset.
+func (d *Dataset) PatchMetadataSchema(ctx context.Context, schema MetadataSchema) (*Dataset, error) {
+	return d.datasetService().PatchMetadataSchema(ctx, d.ID, schema)
+}
+
+// ReplaceMetadataSchema replaces this dataset's complete typed metadata schema.
+func (d *Dataset) ReplaceMetadataSchema(ctx context.Context, schema MetadataSchema) (*Dataset, error) {
+	return d.datasetService().ReplaceMetadataSchema(ctx, d.ID, schema)
 }
 
 // Ask runs an intelligence query scoped to this dataset.

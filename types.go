@@ -8,6 +8,27 @@ import (
 // Metadata is arbitrary user or API metadata attached to resources and results.
 type Metadata map[string]interface{}
 
+// MetadataFieldType is a canonical scalar type supported by dataset schemas.
+type MetadataFieldType string
+
+const (
+	MetadataFieldString MetadataFieldType = "string"
+	MetadataFieldU32    MetadataFieldType = "u32"
+	MetadataFieldI32    MetadataFieldType = "i32"
+	MetadataFieldI64    MetadataFieldType = "i64"
+	MetadataFieldF32    MetadataFieldType = "f32"
+	MetadataFieldF64    MetadataFieldType = "f64"
+)
+
+// MetadataSchemaField declares one typed metadata field.
+type MetadataSchemaField struct {
+	Name string            `json:"name"`
+	Type MetadataFieldType `json:"type"`
+}
+
+// MetadataSchema is a dataset's ordered typed metadata field declaration.
+type MetadataSchema []MetadataSchemaField
+
 // Pagination summarizes a paginated list response.
 type Pagination struct {
 	Total  int `json:"total"`
@@ -24,18 +45,20 @@ type Dataset struct {
 	service *DatasetService `json:"-"`
 	client  *Client         `json:"-"`
 
-	ID        string                 `json:"id"`
-	Name      string                 `json:"name"`
-	OrgID     string                 `json:"org_id,omitempty"`
-	Dim       int                    `json:"dim"`
-	Metric    string                 `json:"metric"`
-	Tuning    map[string]interface{} `json:"tuning,omitempty"`
-	Embedding *EmbeddingConfig       `json:"embedding,omitempty"`
-	IndexType string                 `json:"index_type,omitempty"`
-	CreatedAt string                 `json:"created_at,omitempty"`
-	UpdatedAt string                 `json:"updated_at,omitempty"`
-	Metadata  Metadata               `json:"metadata,omitempty"`
-	Raw       json.RawMessage        `json:"-"`
+	ID            string                 `json:"id"`
+	Name          string                 `json:"name"`
+	OrgID         string                 `json:"org_id,omitempty"`
+	Dim           int                    `json:"dim"`
+	Metric        string                 `json:"metric"`
+	Tuning        map[string]interface{} `json:"tuning,omitempty"`
+	Embedding     *EmbeddingConfig       `json:"embedding,omitempty"`
+	IndexType     string                 `json:"index_type,omitempty"`
+	CreatedAt     string                 `json:"created_at,omitempty"`
+	UpdatedAt     string                 `json:"updated_at,omitempty"`
+	Metadata      Metadata               `json:"metadata,omitempty"`
+	Schema        MetadataSchema         `json:"schema,omitempty"`
+	SchemaVersion int                    `json:"schema_version,omitempty"`
+	Raw           json.RawMessage        `json:"-"`
 }
 
 // UnmarshalJSON decodes a dataset and preserves the raw response body.
@@ -153,13 +176,14 @@ func inferDim(provider, model string) (int, bool) {
 // explicit Dim. MarshalJSON always adds index_type="sable" because public
 // dataset creation is SABLE-only.
 type CreateDatasetRequest struct {
-	Name      string                 `json:"name"`
-	Dim       int                    `json:"dim,omitempty"`
-	Metric    string                 `json:"metric,omitempty"`
-	Hybrid    bool                   `json:"hybrid,omitempty"`
-	Tuning    map[string]interface{} `json:"tuning,omitempty"`
-	Embedding *EmbeddingConfig       `json:"embedding,omitempty"`
-	Metadata  Metadata               `json:"metadata,omitempty"`
+	Name           string                 `json:"name"`
+	Dim            int                    `json:"dim,omitempty"`
+	Metric         string                 `json:"metric,omitempty"`
+	Hybrid         bool                   `json:"hybrid,omitempty"`
+	Tuning         map[string]interface{} `json:"tuning,omitempty"`
+	Embedding      *EmbeddingConfig       `json:"embedding,omitempty"`
+	Metadata       Metadata               `json:"metadata,omitempty"`
+	MetadataSchema MetadataSchema         `json:"schema,omitempty"`
 }
 
 // withDefaults returns a copy of the request with SDK defaults applied: a
