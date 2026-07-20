@@ -160,6 +160,44 @@ func TestDatasetListCreateGetDeleteSearchInsertAndAddTexts(t *testing.T) {
 	}
 }
 
+func TestDatasetMetadataSchemaCreatePatchAndReplace(t *testing.T) {
+	var modes []string
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		body := decodeBody(t, r)
+		schema, ok := body["schema"].([]interface{})
+		if !ok || len(schema) != 1 || schema[0].(map[string]interface{})["type"] != "f32" {
+			t.Fatalf("bad schema body: %#v", body)
+		}
+		if r.Method == "POST" && r.URL.Path == "/datasets" {
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"ds1","schema_version":1}`))
+			return
+		}
+		if r.Method != "PATCH" || r.URL.Path != "/datasets/ds1/schema" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		modes = append(modes, body["mode"].(string))
+		w.Write([]byte(`{"id":"ds1","schema_version":2,"schema":[{"name":"price","type":"f32"}]}`))
+	}))
+
+	schema := MetadataSchema{{Name: "price", Type: MetadataFieldF32}}
+	ds, err := c.Datasets.Create(context.Background(), CreateDatasetRequest{Name: "docs", Dim: 3, MetadataSchema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = c.Datasets.PatchMetadataSchema(context.Background(), ds.ID, schema); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := ds.ReplaceMetadataSchema(context.Background(), schema)
+	if err != nil || updated.SchemaVersion != 2 || updated.Schema[0].Type != MetadataFieldF32 {
+		t.Fatalf("replace: %#v %v", updated, err)
+	}
+	if !reflect.DeepEqual(modes, []string{"merge", "replace"}) {
+		t.Fatalf("modes = %#v", modes)
+	}
+}
+
 func TestDatasetDocumentsListAndDownload(t *testing.T) {
 	bytes := []byte{0x00, 0x01, 0xff, 'V', 'A'}
 	fileServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
