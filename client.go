@@ -34,7 +34,7 @@ type Client struct {
 // user agent. Options such as WithBaseURL, WithHTTPClient, WithTransport, and
 // WithUserAgent override those defaults. The returned client is ready to use.
 func NewClient(apiKey string, opts ...Option) *Client {
-	rest := &RESTTransport{BaseURL: mustURL(DefaultBaseURL), APIKey: apiKey, HTTPClient: http.DefaultClient, UserAgent: "vectoramp-go/0.1.1"}
+	rest := &RESTTransport{BaseURL: mustURL(DefaultBaseURL), APIKey: apiKey, HTTPClient: http.DefaultClient, UserAgent: "vectoramp-go/0.2.0"}
 	c := &Client{transport: rest, rt: rest}
 	for _, opt := range opts {
 		opt(c)

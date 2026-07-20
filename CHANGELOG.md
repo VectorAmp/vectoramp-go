@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning.
 
+## [0.2.0] - 2026-07-20
+
+### Added
+
+- Add typed metadata-schema fields when creating datasets.
+- Add metadata-schema merge/patch and full replacement operations.
+- Document create, merge, and replace schema workflows.
+
 ## [0.1.1] - 2026-07-14
 
 ### Added
