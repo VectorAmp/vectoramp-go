@@ -22,6 +22,10 @@ const (
 	SourceTypeConfluence = "confluence"
 	// SourceTypeFileUpload identifies presigned file-upload sources.
 	SourceTypeFileUpload = "file_upload"
+	// SourceTypeGitHub identifies GitHub App based repository ingestion sources.
+	SourceTypeGitHub = "github"
+	// SourceTypeGitLab identifies GitLab repository ingestion sources.
+	SourceTypeGitLab = "gitlab"
 )
 
 // SourceBuilder is implemented by typed ingestion source definitions that can
@@ -357,6 +361,135 @@ func (s *IngestionService) CreateConfluence(ctx context.Context, source Confluen
 	return s.CreateSource(ctx, source)
 }
 
+// GitHubSource describes a GitHub ingestion source. Repository content is read
+// through a read-only GitHub App installation, so there is no access token or
+// connection id: InstallationID identifies the installation and Repositories
+// lists the full names ("owner/repo") to ingest. Both are required.
+//
+// RefMode selects which branches are ingested: "active" (default) walks
+// branches touched within ActiveBranchDays, "default" ingests only the default
+// branch, and "explicit" ingests exactly Refs. Name defaults to
+// github-<first repository>, or go-sdk-github-source when Repositories is
+// empty. IncludePullRequests, IncludeReviewThreads, and IncludeDirectCommits
+// default to true server-side; leave them nil to accept that default.
+// Zero-value optional fields are omitted from config; ConfigExtra is merged
+// into config last.
+type GitHubSource struct {
+	Name                 string
+	InstallationID       int64
+	Repositories         []string
+	RefMode              string
+	Refs                 []string
+	ExcludedRefs         []string
+	ActiveBranchDays     int
+	IncludePullRequests  *bool
+	IncludeReviewThreads *bool
+	IncludeDirectCommits *bool
+	IncludeGlobs         []string
+	ExcludeGlobs         []string
+	MaxFileSizeBytes     int
+	SyncMode             string
+	Description          string
+	Metadata             Metadata
+	ConfigExtra          map[string]interface{}
+}
+
+// ToCreateSourceRequest converts GitHubSource into a create-source request.
+func (s GitHubSource) ToCreateSourceRequest() CreateSourceRequest {
+	config := map[string]interface{}{
+		"type":            SourceTypeGitHub,
+		"installation_id": s.InstallationID,
+		"repositories":    append([]string(nil), s.Repositories...),
+		"sync_mode":       defaultString(s.SyncMode, "incremental"),
+	}
+	setNonEmpty(config, "ref_mode", s.RefMode)
+	setStringSlice(config, "refs", s.Refs)
+	setStringSlice(config, "excluded_refs", s.ExcludedRefs)
+	setNonZero(config, "active_branch_days", s.ActiveBranchDays)
+	setBoolPtr(config, "include_pull_requests", s.IncludePullRequests)
+	setBoolPtr(config, "include_review_threads", s.IncludeReviewThreads)
+	setBoolPtr(config, "include_direct_commits", s.IncludeDirectCommits)
+	setStringSlice(config, "include_globs", s.IncludeGlobs)
+	setStringSlice(config, "exclude_globs", s.ExcludeGlobs)
+	setNonZero(config, "max_file_size_bytes", s.MaxFileSizeBytes)
+	mergeExtra(config, s.ConfigExtra)
+	return CreateSourceRequest{SourceType: SourceTypeGitHub, Name: defaultString(s.Name, githubSourceDefaultName(s.Repositories)), Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
+}
+
+// CreateGitHub creates a GitHub ingestion source and returns it.
+func (s *IngestionService) CreateGitHub(ctx context.Context, source GitHubSource) (*Source, error) {
+	return s.CreateSource(ctx, source)
+}
+
+// GitLabSource describes a GitLab ingestion source, on gitlab.com or a
+// self-managed instance (set GitLabURL).
+//
+// AuthMode defaults to oauth, which resolves credentials from ConnectionID at
+// ingest time; use "token" with AccessToken for a personal or group access
+// token. At least one of Groups (group paths) or Projects (full paths such as
+// "group/project") must be set. RefMode selects which branches are ingested:
+// "active" (default) walks branches touched within ActiveBranchDays, "default"
+// ingests only the default branch, and "explicit" ingests exactly Refs. Name
+// defaults to gitlab-<first project>, then gitlab-<first group>, then
+// go-sdk-gitlab-source. IncludeMergeRequests, IncludeReviewThreads, and
+// IncludeDirectCommits default to true server-side; leave them nil to accept
+// that default. Zero-value optional fields are omitted from config;
+// ConfigExtra is merged into config last.
+type GitLabSource struct {
+	Name                 string
+	AuthMode             string
+	GitLabURL            string
+	ConnectionID         string `json:"-"`
+	AccessToken          string
+	Groups               []string
+	Projects             []string
+	RefMode              string
+	Refs                 []string
+	ExcludedRefs         []string
+	ActiveBranchDays     int
+	IncludeMergeRequests *bool
+	IncludeReviewThreads *bool
+	IncludeDirectCommits *bool
+	IncludeGlobs         []string
+	ExcludeGlobs         []string
+	MaxFileSizeBytes     int
+	SyncMode             string
+	Description          string
+	Metadata             Metadata
+	ConfigExtra          map[string]interface{}
+}
+
+// ToCreateSourceRequest converts GitLabSource into a create-source request.
+func (s GitLabSource) ToCreateSourceRequest() CreateSourceRequest {
+	config := map[string]interface{}{
+		"type":      SourceTypeGitLab,
+		"auth_mode": defaultString(s.AuthMode, "oauth"),
+		"sync_mode": defaultString(s.SyncMode, "incremental"),
+	}
+	setNonEmpty(config, "gitlab_url", s.GitLabURL)
+	setNonEmpty(config, "connection_id", s.ConnectionID)
+	setNonEmpty(config, "access_token", s.AccessToken)
+	setStringSlice(config, "groups", s.Groups)
+	setStringSlice(config, "projects", s.Projects)
+	setNonEmpty(config, "ref_mode", s.RefMode)
+	setStringSlice(config, "refs", s.Refs)
+	setStringSlice(config, "excluded_refs", s.ExcludedRefs)
+	setNonZero(config, "active_branch_days", s.ActiveBranchDays)
+	setBoolPtr(config, "include_merge_requests", s.IncludeMergeRequests)
+	setBoolPtr(config, "include_review_threads", s.IncludeReviewThreads)
+	setBoolPtr(config, "include_direct_commits", s.IncludeDirectCommits)
+	setStringSlice(config, "include_globs", s.IncludeGlobs)
+	setStringSlice(config, "exclude_globs", s.ExcludeGlobs)
+	setNonZero(config, "max_file_size_bytes", s.MaxFileSizeBytes)
+	mergeExtra(config, s.ConfigExtra)
+	return CreateSourceRequest{SourceType: SourceTypeGitLab, Name: defaultString(s.Name, gitlabSourceDefaultName(s)), Description: s.Description, Config: config, Metadata: cloneMetadata(s.Metadata)}
+}
+
+// CreateGitLab creates a GitLab ingestion source and returns it.
+func (s *IngestionService) CreateGitLab(ctx context.Context, source GitLabSource) (*Source, error) {
+	return s.CreateSource(ctx, source)
+}
+
 // Create is an alias for CreateSource.
 func (s *IngestionService) Create(ctx context.Context, source interface{}) (*Source, error) {
 	return s.CreateSource(ctx, source)
@@ -534,6 +667,23 @@ func gdriveSourceDefaultName(source GoogleDriveSource) string {
 		return "gdrive-" + sanitizeName(source.FolderIDs[0])
 	}
 	return "go-sdk-gdrive-source"
+}
+
+func githubSourceDefaultName(repositories []string) string {
+	if len(repositories) == 0 || repositories[0] == "" {
+		return "go-sdk-github-source"
+	}
+	return defaultSourceName(SourceTypeGitHub, repositories[0])
+}
+
+func gitlabSourceDefaultName(source GitLabSource) string {
+	if len(source.Projects) > 0 && source.Projects[0] != "" {
+		return defaultSourceName(SourceTypeGitLab, source.Projects[0])
+	}
+	if len(source.Groups) > 0 && source.Groups[0] != "" {
+		return defaultSourceName(SourceTypeGitLab, source.Groups[0])
+	}
+	return "go-sdk-gitlab-source"
 }
 
 func sanitizeName(value string) string {
