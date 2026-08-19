@@ -270,8 +270,8 @@ if docs.NextCursor != "" {
 
 Typed builders make source creation safer while preserving `CreateSourceRequest`
 for fully manual calls. Supported public `source_type` values: `web`, `s3`, `gcs`,
-`gdrive`, `jira`, `confluence`, `file_upload`. Use `GenericSource` for custom or
-future types.
+`gdrive`, `jira`, `confluence`, `file_upload`, `github`, `gitlab`. Use
+`GenericSource` for custom or future types.
 
 ```go
 web, err := client.Sources.CreateWeb(ctx, vectoramp.WebSource{
@@ -295,13 +295,29 @@ confluence, err := client.Sources.CreateConfluence(ctx, vectoramp.ConfluenceSour
 
 jira, err := client.Sources.CreateJira(ctx, vectoramp.JiraSource{CloudID: "your-cloud-id"})
 
+// GitHub reads through a read-only GitHub App installation, so it takes an
+// installation id rather than a token. Name defaults to github-vectoramp-docs.
+github, err := client.Sources.CreateGitHub(ctx, vectoramp.GitHubSource{
+    InstallationID: 12345678,
+    Repositories:   []string{"VectorAmp/Docs"},
+    RefMode:        "active", // "active" (default) | "default" | "explicit"
+})
+
+// GitLab accepts OAuth (a saved connection) or a personal/group access token,
+// on gitlab.com or a self-managed instance via GitLabURL.
+gitlab, err := client.Sources.CreateGitLab(ctx, vectoramp.GitLabSource{
+    AuthMode:    "token",
+    AccessToken: os.Getenv("GITLAB_TOKEN"),
+    Projects:    []string{"platform/ingestion"}, // or Groups: []string{"platform"}
+})
+
 custom, err := client.Sources.Create(ctx, vectoramp.GenericSource{
     SourceType: "custom",
     Name:       "custom-source",
     Config:     map[string]interface{}{"type": "custom"},
 })
 
-_, _, _, _, _ = web, s3, confluence, jira, custom
+_, _, _, _, _, _, _ = web, s3, confluence, jira, github, gitlab, custom
 ```
 
 ### Ingest a source into a dataset
@@ -450,7 +466,7 @@ helpers: `VectorAmpEmbedding()`, `OpenAIEmbedding("small"|"large")`.
 | Method | Required | Returns |
 |---|---|---|
 | `CreateSource(source)` / `Create(source)` | source (builder or `CreateSourceRequest`) | `*Source` |
-| `CreateWeb`/`CreateS3`/`CreateGCS`/`CreateGoogleDrive`/`CreateJira`/`CreateConfluence`/`CreateFileUpload(source)` | typed builder | `*Source` |
+| `CreateWeb`/`CreateS3`/`CreateGCS`/`CreateGoogleDrive`/`CreateJira`/`CreateConfluence`/`CreateFileUpload`/`CreateGitHub`/`CreateGitLab(source)` | typed builder | `*Source` |
 | `ListSources(limit, offset)` | — | `*SourceList` |
 | `GetSource(id)` | id | `*Source` |
 | `StartJob(req)` | `req.SourceID`, `req.DatasetID` | `*Job` |
@@ -460,7 +476,8 @@ helpers: `VectorAmpEmbedding()`, `OpenAIEmbedding("small"|"large")`.
 | `IngestFiles(datasetID, paths, opts)` | datasetID, paths | `*Job` |
 
 Source builders: `WebSource`, `S3Source`, `GCSSource`, `GoogleDriveSource`,
-`JiraSource`, `ConfluenceSource`, `FileUploadSource`, `GenericSource`.
+`JiraSource`, `ConfluenceSource`, `FileUploadSource`, `GitHubSource`,
+`GitLabSource`, `GenericSource`.
 
 ### `client.Schedules`
 
