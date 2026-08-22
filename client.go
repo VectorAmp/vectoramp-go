@@ -54,10 +54,11 @@ func NewClient(apiKey string, opts ...Option) *Client {
 
 // Ask runs an intelligence query across the configured dataset scope.
 //
-// query is the natural-language question. Options may set a dataset, use all
-// datasets, adjust top_k, include source citations, or attach conversation
-// history. It returns the generated answer and any citations/chunks included by
-// the API.
+// query is the natural-language question. Options may add datasets to the
+// scope, clear it to reach every accessible dataset, adjust top_k, include
+// source citations, or attach conversation history. Without a dataset option
+// the question reaches every dataset the caller can see. It returns the
+// generated answer and any citations/chunks included by the API.
 func (c *Client) Ask(ctx context.Context, query string, opts ...AskOption) (*AskResponse, error) {
 	req := AskRequest{Query: query, Stream: false}
 	for _, opt := range opts {

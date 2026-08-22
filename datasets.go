@@ -290,7 +290,7 @@ func (s *DatasetService) Ask(ctx context.Context, datasetID string, input interf
 	if err != nil {
 		return nil, err
 	}
-	req.DatasetID = datasetID
+	req.DatasetIDs = []string{datasetID}
 	return s.client.Intelligence.Ask(ctx, req)
 }
 

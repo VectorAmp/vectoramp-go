@@ -27,6 +27,26 @@ func decodeBody(t *testing.T, r *http.Request) map[string]interface{} {
 	return got
 }
 
+// datasetScopeIs reports whether an intelligence request body carries exactly
+// want as its dataset_ids. Passing no ids asserts the field is absent, which is
+// how the API spells "every dataset the caller can see".
+func datasetScopeIs(body map[string]interface{}, want ...string) bool {
+	raw, ok := body["dataset_ids"]
+	if !ok {
+		return len(want) == 0
+	}
+	got, ok := raw.([]interface{})
+	if !ok || len(got) != len(want) {
+		return false
+	}
+	for i, id := range want {
+		if got[i] != id {
+			return false
+		}
+	}
+	return true
+}
+
 func TestClientDefaultsAndAPIError(t *testing.T) {
 	c := NewClient("secret")
 	if c.transport.BaseURL.String() != DefaultBaseURL {
@@ -103,7 +123,7 @@ func TestDatasetListCreateGetDeleteSearchInsertAndAddTexts(t *testing.T) {
 		case r.Method == "POST" && r.URL.Path == "/intelligence/query":
 			seen["ask"] = true
 			body := decodeBody(t, r)
-			if body["dataset_id"] != "ds1" || body["query"] != "why" {
+			if !datasetScopeIs(body, "ds1") || body["query"] != "why" {
 				t.Fatalf("bad ask body: %#v", body)
 			}
 			w.Write([]byte(`{"answer":"because"}`))
@@ -360,7 +380,7 @@ func TestMinimalConvenienceInputs(t *testing.T) {
 		case r.Method == "POST" && r.URL.Path == "/intelligence/query":
 			seen["ask"] = true
 			body := decodeBody(t, r)
-			if body["dataset_id"] != "ds1" || body["query"] != "why" || body["top_k"].(float64) != 4 {
+			if !datasetScopeIs(body, "ds1") || body["query"] != "why" || body["top_k"].(float64) != 4 {
 				t.Fatalf("bad convenience ask body: %#v", body)
 			}
 			w.Write([]byte(`{"answer":"because"}`))
@@ -401,8 +421,11 @@ func TestIntelligenceAskAndStream(t *testing.T) {
 			w.Write([]byte("data: {\"chunk_type\":\"done\",\"content\":\"\"}\n\n"))
 			return
 		}
-		if body["query"] != "what" || body["dataset_id"] != "all" {
+		if body["query"] != "what" || !datasetScopeIs(body) {
 			t.Fatalf("bad ask body: %#v", body)
+		}
+		if _, ok := body["dataset_id"]; ok {
+			t.Fatalf("retired dataset_id sent: %#v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"answer":"42","metadata":{"model":"test"}}`))
@@ -1100,5 +1123,96 @@ func TestDeleteVectorsAndOpenAISecretDatasetCreate(t *testing.T) {
 		if !seen[k] {
 			t.Fatalf("did not see %s", k)
 		}
+	}
+}
+
+// TestIntelligenceDatasetScope covers the dataset_ids migration: the retired
+// dataset_id field must never reach the wire, several datasets must survive the
+// round trip in order, and an unscoped question must omit the field entirely.
+func TestIntelligenceDatasetScope(t *testing.T) {
+	cases := []struct {
+		name string
+		opts []AskOption
+		want []string
+	}{
+		{"single dataset", []AskOption{WithDataset("ds1")}, []string{"ds1"}},
+		{"repeated WithDataset widens the scope", []AskOption{WithDataset("ds1"), WithDataset("ds2")}, []string{"ds1", "ds2"}},
+		{"WithDatasets sets the whole scope", []AskOption{WithDataset("ds9"), WithDatasets("ds1", "ds2", "ds3")}, []string{"ds1", "ds2", "ds3"}},
+		{"unscoped omits the field", nil, nil},
+		{"WithAllDatasets clears the scope", []AskOption{WithDataset("ds1"), WithAllDatasets()}, nil},
+		{"the retired all sentinel is dropped", []AskOption{WithDataset("all")}, nil},
+		{"blank ids are dropped", []AskOption{WithDatasets("ds1", "", "  ")}, []string{"ds1"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var body map[string]interface{}
+			c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body = decodeBody(t, r)
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"answer":"ok"}`))
+			}))
+
+			if _, err := c.Ask(context.Background(), "why", tc.opts...); err != nil {
+				t.Fatalf("ask: %v", err)
+			}
+			if !datasetScopeIs(body, tc.want...) {
+				t.Fatalf("dataset scope = %#v, want %v", body["dataset_ids"], tc.want)
+			}
+			// dataset_id is retired; the API answers any request carrying it with a 400.
+			if _, ok := body["dataset_id"]; ok {
+				t.Fatalf("retired dataset_id sent: %#v", body)
+			}
+		})
+	}
+}
+
+// TestIntelligenceStreamDatasetScope covers Stream, which takes a bare
+// AskRequest and so normalizes the scope on its own path.
+func TestIntelligenceStreamDatasetScope(t *testing.T) {
+	var body map[string]interface{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = decodeBody(t, r)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte("data: {\"chunk_type\":\"done\",\"content\":\"\"}\n\n"))
+	}))
+
+	stream, err := c.Intelligence.Stream(context.Background(), AskRequest{
+		Query:      "stream",
+		DatasetIDs: []string{"ds1", "all", "ds2"},
+	})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	defer stream.Close()
+	for {
+		if _, ok := stream.Next(); !ok {
+			break
+		}
+	}
+
+	if !datasetScopeIs(body, "ds1", "ds2") {
+		t.Fatalf("dataset scope = %#v", body["dataset_ids"])
+	}
+	if _, ok := body["dataset_id"]; ok {
+		t.Fatalf("retired dataset_id sent: %#v", body)
+	}
+}
+
+// TestDatasetAskScopesToItself pins Dataset.Ask to its own id rather than the
+// retired singular field.
+func TestDatasetAskScopesToItself(t *testing.T) {
+	var body map[string]interface{}
+	c := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body = decodeBody(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"answer":"ok"}`))
+	}))
+
+	if _, err := c.Datasets.Ask(context.Background(), "ds_self", "why"); err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+	if !datasetScopeIs(body, "ds_self") {
+		t.Fatalf("dataset scope = %#v", body["dataset_ids"])
 	}
 }
