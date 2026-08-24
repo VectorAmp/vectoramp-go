@@ -380,14 +380,19 @@ answer, err := client.Ask(ctx, "What are the key product features?", vectoramp.W
 
 ds, err := client.Datasets.Get(ctx, "dataset-id")
 answer, err = ds.Ask(ctx, "What are the key product features?", vectoramp.WithTopK(5))
+
+// Scope one question to several datasets. WithDataset adds to the scope, so
+// repeating it widens it; WithDatasets replaces the whole scope.
+answer, err = client.Ask(ctx, "Which contracts renew in Q4?",
+    vectoramp.WithDatasets("contracts-id", "invoices-id"))
 ```
 
 ### Streaming SSE
 
 ```go
 stream, err := client.Intelligence.Stream(ctx, vectoramp.AskRequest{
-    Query:     "Summarize the launch plan",
-    DatasetID: "dataset-id",
+    Query:      "Summarize the launch plan",
+    DatasetIDs: []string{"dataset-id"},
 })
 if err != nil {
     log.Fatal(err)
@@ -454,7 +459,7 @@ object-style (`ds.Search(...)`) forms work where listed.
 | `AddTexts(id, input, opts...)` / `ds.AddTexts(input, opts...)` | id, input (string, `[]string`, `[]TextDocument`, or `AddTextsRequest`) | `WithEmbedding(provider, model)` | `*AddTextsResponse` |
 | `IngestSource(id, source, pipelineID...)` / `ds.IngestSource(source, pipelineID...)` | id, source (ID, `Source`, or builder) | pipelineID | `*Job` |
 | `IngestFiles(id, paths, opts)` / `ds.IngestFiles(paths, opts)` | id, paths | `opts.SourceName`, `opts.Description`, `opts.PipelineID`, `opts.Metadata` | `*Job` |
-| `Ask(id, input, opts...)` / `ds.Ask(input, opts...)` | id, input (string or `AskRequest`) | `WithTopK` (5), `WithSources`, `WithHistory` | `*AskResponse` |
+| `Ask(id, input, opts...)` / `ds.Ask(input, opts...)` | id, input (string or `AskRequest`) | `WithDataset`, `WithDatasets`, `WithAllDatasets`, `WithTopK` (5), `WithSources`, `WithHistory` | `*AskResponse` |
 
 \* `Embed` is available on `*Dataset` via `ds.Embed(...)` as well as `client.Datasets.Embed(id, ...)`.
 

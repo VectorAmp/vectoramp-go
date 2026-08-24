@@ -17,11 +17,22 @@ type IntelligenceService struct{ client *Client }
 // AskOption customizes an AskRequest built from convenience inputs.
 type AskOption func(*AskRequest)
 
-// WithDataset scopes an intelligence query to one dataset ID.
-func WithDataset(datasetID string) AskOption { return func(r *AskRequest) { r.DatasetID = datasetID } }
+// WithDataset adds one dataset ID to an intelligence query's scope. Repeating it
+// widens the scope rather than replacing it.
+func WithDataset(datasetID string) AskOption {
+	return func(r *AskRequest) { r.DatasetIDs = append(r.DatasetIDs, datasetID) }
+}
 
-// WithAllDatasets scopes an intelligence query across all accessible datasets.
-func WithAllDatasets() AskOption { return func(r *AskRequest) { r.DatasetID = "all" } }
+// WithDatasets sets the exact dataset scope of an intelligence query, replacing
+// anything set before it.
+func WithDatasets(datasetIDs ...string) AskOption {
+	return func(r *AskRequest) { r.DatasetIDs = append([]string(nil), datasetIDs...) }
+}
+
+// WithAllDatasets clears the scope so the query reaches every accessible
+// dataset. That is what an absent dataset_ids means to the API; the old "all"
+// sentinel is retired.
+func WithAllDatasets() AskOption { return func(r *AskRequest) { r.DatasetIDs = nil } }
 
 // WithTopK sets the number of retrieval chunks considered by intelligence.
 func WithTopK(k int) AskOption { return func(r *AskRequest) { r.TopK = k } }
@@ -52,10 +63,11 @@ func (s *IntelligenceService) Ask(ctx context.Context, input interface{}, opts .
 
 // Stream runs a streaming intelligence query and returns an SSE reader.
 //
-// req.Query is required. DatasetID, TopK, ConversationHistory, and
+// req.Query is required. DatasetIDs, TopK, ConversationHistory, and
 // IncludeSources are optional. The SDK forces req.Stream to true.
 func (s *IntelligenceService) Stream(ctx context.Context, req AskRequest) (*AskStream, error) {
 	req.Stream = true
+	req.DatasetIDs = normalizeDatasetIDs(req.DatasetIDs)
 	rc, err := s.client.stream(ctx, "POST", "/intelligence/query", req)
 	if err != nil {
 		return nil, err
@@ -140,7 +152,23 @@ func normalizeAskRequest(input interface{}, opts ...AskOption) (AskRequest, erro
 	for _, opt := range opts {
 		opt(&req)
 	}
+	req.DatasetIDs = normalizeDatasetIDs(req.DatasetIDs)
 	return req, nil
+}
+
+// normalizeDatasetIDs drops blanks and the retired "all" sentinel. An empty
+// scope is omitted from the request, which is how the API says "every dataset
+// the caller can see".
+func normalizeDatasetIDs(ids []string) []string {
+	var out []string
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || id == "all" {
+			continue
+		}
+		out = append(out, id)
+	}
+	return out
 }
 
 // CreateSession creates a persistent Intelligence session.

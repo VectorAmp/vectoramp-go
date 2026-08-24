@@ -489,12 +489,16 @@ type CompleteUploadRequest struct {
 
 // AskRequest is the request body for intelligence queries.
 //
-// Query is required. DatasetID is optional and may be a dataset ID or "all".
-// TopK, ConversationHistory, and IncludeSources are optional. Stream is managed
-// by Ask and Stream helpers.
+// Query is required. DatasetIDs scopes the question; leave it empty to search
+// every dataset the caller can see. TopK, ConversationHistory, and
+// IncludeSources are optional. Stream is managed by Ask and Stream helpers.
+//
+// The singular dataset_id field is retired: the API answers any request
+// carrying it with a 400 naming dataset_ids as the replacement, and the old
+// "all" sentinel is expressed by omitting the scope.
 type AskRequest struct {
 	Query               string                `json:"query"`
-	DatasetID           interface{}           `json:"dataset_id,omitempty"`
+	DatasetIDs          []string              `json:"dataset_ids,omitempty"`
 	TopK                int                   `json:"top_k,omitempty"`
 	ConversationHistory []ConversationMessage `json:"conversation_history,omitempty"`
 	Stream              bool                  `json:"stream"`
