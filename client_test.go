@@ -287,6 +287,10 @@ func TestIngestionSourcesJobsAndFilesystemUpload(t *testing.T) {
 			}
 			w.Write([]byte(`{"source_id":"src1","name":"upload","source_type":"file_upload"}`))
 		case r.Method == "POST" && r.URL.Path == "/ingestion/sources/src1/upload/init":
+			body := decodeBody(t, r)
+			if body["security_scope_key"] != "tenant-acme" {
+				t.Fatalf("missing upload security scope: %#v", body)
+			}
 			w.Write([]byte(`{"job_id":"job1","uploads":[{"file_id":"file1","file_name":"doc.txt","upload_url":"` + uploadServer.URL + `"}]}`))
 		case r.Method == "POST" && r.URL.Path == "/ingestion/sources/src1/upload/complete":
 			w.Write([]byte(`{"job_id":"job1","status":"pending"}`))
@@ -324,7 +328,7 @@ func TestIngestionSourcesJobsAndFilesystemUpload(t *testing.T) {
 	if job, err := c.Ingestion.RetryJob(context.Background(), "job2"); err != nil || job.JobID != "job3" {
 		t.Fatalf("retry job: %#v %v", job, err)
 	}
-	if job, err := c.Ingestion.IngestFiles(context.Background(), "ds1", []string{tmp}, nil); err != nil || job.JobID != "job1" || !uploadHit {
+	if job, err := c.Ingestion.IngestFiles(context.Background(), "ds1", []string{tmp}, &IngestFilesOptions{SecurityScopeKey: "tenant-acme"}); err != nil || job.JobID != "job1" || !uploadHit {
 		t.Fatalf("ingest files: %#v upload=%v err=%v", job, uploadHit, err)
 	}
 }
@@ -601,16 +605,20 @@ func TestSchedulesCRUDAndTrigger(t *testing.T) {
 		t.Fatalf("get: %#v err=%v", got, err)
 	}
 	created, err := c.Schedules.Create(context.Background(), CreateScheduleRequest{
-		SourceID:  "src_1",
-		DatasetID: "ds_1",
-		Cron:      "0 0 * * *",
-		Timezone:  "UTC",
+		SourceID:      "src_1",
+		DatasetID:     "ds_1",
+		Cron:          "0 0 * * *",
+		Timezone:      "UTC",
+		SecurityScope: &SecurityScopeSelection{ExternalKey: "tenant-acme"},
 	})
 	if err != nil || created.ID != "sch_2" {
 		t.Fatalf("create: %#v err=%v", created, err)
 	}
 	if lastBody["source_id"] != "src_1" || lastBody["dataset_id"] != "ds_1" || lastBody["cron"] != "0 0 * * *" || lastBody["timezone"] != "UTC" {
 		t.Fatalf("bad create body: %#v", lastBody)
+	}
+	if scope := lastBody["security_scope"].(map[string]interface{}); scope["external_key"] != "tenant-acme" {
+		t.Fatalf("bad security scope: %#v", lastBody)
 	}
 	disabled := false
 	updated, err := c.Schedules.Update(context.Background(), "sch_2", UpdateScheduleRequest{Enabled: &disabled})
@@ -906,7 +914,7 @@ func TestAddTextsNumericIDsPreserved(t *testing.T) {
 	_, err := ds.AddTexts(context.Background(), AddTextsRequest{Texts: []TextDocument{
 		{ID: IntID(100), Text: "one"},
 		{Text: "two"}, // generated id
-	}})
+	}, SecurityScopeKey: "tenant-acme"})
 	if err != nil {
 		t.Fatalf("add texts: %v", err)
 	}
@@ -918,6 +926,9 @@ func TestAddTextsNumericIDsPreserved(t *testing.T) {
 	second := vectors[1].(map[string]interface{})
 	if second["id"] != "text-2" {
 		t.Fatalf("generated id should be text-2: %#v", second["id"])
+	}
+	if first["security_scope_key"] != "tenant-acme" || second["security_scope_key"] != "tenant-acme" {
+		t.Fatalf("add texts scope missing: %#v", vectors)
 	}
 }
 

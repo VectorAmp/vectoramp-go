@@ -6,6 +6,11 @@ This project follows semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Add optional dataset security-scope support to vector inserts, `AddTexts`, file ingestion,
+  upload initialization, and ingestion schedule create/update requests.
+
 ### Changed
 
 - **Breaking:** `AskRequest.DatasetID` is replaced by `AskRequest.DatasetIDs []string`.

@@ -368,6 +368,24 @@ page, err := client.Schedules.List(ctx, 50, 0)
 _, err = client.Schedules.Trigger(ctx, sch.ID)
 ```
 
+## Dataset permissions
+
+Assign writes to an active dataset-local scope by external key. Leave the key empty to use the
+dataset default.
+
+```go
+_, _ = client.Datasets.Insert(ctx, datasetID, []vectoramp.Vector{{
+    ID: vectoramp.StringID("v1"), Values: []float64{0.1, 0.2}, SecurityScopeKey: "tenant-acme",
+}})
+_, _ = client.Datasets.AddTexts(ctx, datasetID, []string{"private handbook"},
+    vectoramp.WithSecurityScopeKey("tenant-acme"))
+_, _ = client.Ingestion.IngestFiles(ctx, datasetID, paths,
+    &vectoramp.IngestFilesOptions{SecurityScopeKey: "tenant-acme"})
+```
+
+Use `SecurityScope: &vectoramp.SecurityScopeSelection{ExternalKey: "tenant-acme"}` when creating
+or updating a schedule. Search is filtered automatically from the caller's effective permissions.
+
 ## Intelligence / RAG
 
 ### Ask (non-streaming)

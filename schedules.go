@@ -38,6 +38,13 @@ type ScheduleList struct {
 	Offset    int        `json:"offset"`
 }
 
+// SecurityScopeSelection identifies a dataset-local scope for scheduled writes.
+// ScopeType defaults to custom on the server.
+type SecurityScopeSelection struct {
+	ExternalKey string `json:"external_key"`
+	ScopeType   string `json:"scope_type,omitempty"`
+}
+
 // Pagination returns the list pagination metadata as a common struct.
 func (p ScheduleList) Pagination() Pagination {
 	return Pagination{Total: p.Total, Limit: p.Limit, Offset: p.Offset}
@@ -50,25 +57,27 @@ func (p ScheduleList) Pagination() Pagination {
 // pipeline. Enabled defaults to true server-side; set explicitly via Enabled to
 // override.
 type CreateScheduleRequest struct {
-	SourceID   string                 `json:"source_id"`
-	DatasetID  string                 `json:"dataset_id"`
-	Cron       string                 `json:"cron"`
-	Timezone   string                 `json:"timezone,omitempty"`
-	PipelineID string                 `json:"pipeline_id,omitempty"`
-	Enabled    *bool                  `json:"enabled,omitempty"`
-	Name       string                 `json:"name,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	SourceID      string                  `json:"source_id"`
+	DatasetID     string                  `json:"dataset_id"`
+	Cron          string                  `json:"cron"`
+	Timezone      string                  `json:"timezone,omitempty"`
+	PipelineID    string                  `json:"pipeline_id,omitempty"`
+	Enabled       *bool                   `json:"enabled,omitempty"`
+	Name          string                  `json:"name,omitempty"`
+	Metadata      map[string]interface{}  `json:"metadata,omitempty"`
+	SecurityScope *SecurityScopeSelection `json:"security_scope,omitempty"`
 }
 
 // UpdateScheduleRequest is a partial update payload. Only non-zero fields are
 // sent; pass Enabled as a pointer to disambiguate "set false" from "leave alone".
 type UpdateScheduleRequest struct {
-	Cron       string                 `json:"cron,omitempty"`
-	Timezone   string                 `json:"timezone,omitempty"`
-	PipelineID string                 `json:"pipeline_id,omitempty"`
-	Enabled    *bool                  `json:"enabled,omitempty"`
-	Name       string                 `json:"name,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	Cron          string                  `json:"cron,omitempty"`
+	Timezone      string                  `json:"timezone,omitempty"`
+	PipelineID    string                  `json:"pipeline_id,omitempty"`
+	Enabled       *bool                   `json:"enabled,omitempty"`
+	Name          string                  `json:"name,omitempty"`
+	Metadata      map[string]interface{}  `json:"metadata,omitempty"`
+	SecurityScope *SecurityScopeSelection `json:"security_scope,omitempty"`
 }
 
 // TriggerScheduleResponse describes the run started by an immediate trigger.

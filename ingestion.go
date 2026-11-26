@@ -211,10 +211,11 @@ func (s *IngestionService) CompleteUpload(ctx context.Context, sourceID string, 
 // and Metadata are copied to the auto-created file_upload source. PipelineID is
 // reserved for API compatibility with ingestion flows that select a pipeline.
 type IngestFilesOptions struct {
-	SourceName  string
-	Description string
-	PipelineID  string
-	Metadata    Metadata
+	SourceName       string
+	Description      string
+	PipelineID       string
+	Metadata         Metadata
+	SecurityScopeKey string
 }
 
 // IngestFiles uploads local files into datasetID and returns the ingestion job.
@@ -255,7 +256,9 @@ func (s *IngestionService) IngestFiles(ctx context.Context, datasetID string, pa
 		}
 		files[i] = UploadFile{Name: filepath.Base(p), SizeBytes: st.Size(), ContentType: ct}
 	}
-	init, err := s.InitUpload(ctx, sourceID, InitUploadRequest{Files: files})
+	init, err := s.InitUpload(ctx, sourceID, InitUploadRequest{
+		Files: files, SecurityScopeKey: opts.SecurityScopeKey,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -232,9 +232,10 @@ func (r CreateDatasetRequest) MarshalJSON() ([]byte, error) {
 // Build one with StringID, IntID, or NewVectorID. A zero ID is omitted so the
 // API can assign one.
 type Vector struct {
-	ID       VectorID  `json:"id"`
-	Values   []float64 `json:"values"`
-	Metadata Metadata  `json:"metadata,omitempty"`
+	ID               VectorID  `json:"id"`
+	Values           []float64 `json:"values"`
+	Metadata         Metadata  `json:"metadata,omitempty"`
+	SecurityScopeKey string    `json:"security_scope_key,omitempty"`
 }
 
 // MarshalJSON serializes a Vector, omitting the id field when it is unset so the
@@ -243,9 +244,10 @@ func (v Vector) MarshalJSON() ([]byte, error) {
 	type alias Vector
 	if v.ID.IsZero() {
 		return json.Marshal(struct {
-			Values   []float64 `json:"values"`
-			Metadata Metadata  `json:"metadata,omitempty"`
-		}{Values: v.Values, Metadata: v.Metadata})
+			Values           []float64 `json:"values"`
+			Metadata         Metadata  `json:"metadata,omitempty"`
+			SecurityScopeKey string    `json:"security_scope_key,omitempty"`
+		}{Values: v.Values, Metadata: v.Metadata, SecurityScopeKey: v.SecurityScopeKey})
 	}
 	return json.Marshal(alias(v))
 }
@@ -290,6 +292,7 @@ type AddTextsRequest struct {
 	Texts             []TextDocument
 	EmbeddingProvider string
 	EmbeddingModel    string
+	SecurityScopeKey  string
 }
 
 // AddTextsResponse reports embedding and insertion counts from AddTexts.
@@ -465,7 +468,8 @@ type UploadFile struct {
 
 // InitUploadRequest requests presigned upload targets for files.
 type InitUploadRequest struct {
-	Files []UploadFile `json:"files"`
+	Files            []UploadFile `json:"files"`
+	SecurityScopeKey string       `json:"security_scope_key,omitempty"`
 }
 
 // UploadTarget is one presigned upload destination returned by InitUpload.
